@@ -1,0 +1,7 @@
+.venv
+.DS_Store
+*.bak
+__pycache__
+*_merged
+qwen3_*
+sessions
