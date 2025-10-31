@@ -480,8 +480,8 @@ class TransformerModel(Model):
 
         # Get generation parameters
         params = self.config.get("params", {})
-        max_tokens = params.get("max_tokens", 100)
-        temperature = params.get("temperature", 0.7)
+        max_tokens = params.get("max_tokens", 300)
+        temperature = params.get("temperature", 1)
         top_p = params.get("top_p", 0.9)
         top_k = params.get("top_k", 20)
         do_sample = params.get("do_sample", True)

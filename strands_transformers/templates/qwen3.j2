@@ -30,7 +30,7 @@ For each function call, return a json object with function name and arguments wi
 <|im_end|>
 {%- if tool_calls %}
 <|im_start|>assistant
-{%- if thinking_content %}
+{% if thinking_content -%}
 <think>{{ thinking_content }}</think>
 {% endif -%}
 <tool_call>
@@ -46,7 +46,7 @@ For each function call, return a json object with function name and arguments wi
 {{ response }}
 {%- else %}
 <|im_start|>assistant
-{%- if thinking_content %}
+{% if thinking_content -%}
 <think>{{ thinking_content }}</think>
 {% endif -%}
 {{ response }}

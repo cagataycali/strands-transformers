@@ -47,15 +47,26 @@ agent("What is Strands Agents?")
 
 ## Generate Dataset
 
+**Option 1: Manual (dataset_generator)**
 ```python
 from tools.dataset_generator import dataset_generator
 
 dataset_generator(
     action="generate",
-    template_name="qwen3-0.6b",
+    template_name="qwen3",
     output_file="my_data.jsonl",
     examples=[{"instruction": "Q", "response": "A"}]
 )
+```
+
+**Option 2: Automatic (JsonlSessionManager)**
+```python
+from jsonl_session_manager import JsonlSessionManager
+
+# Auto-collect training data from conversations
+session = JsonlSessionManager(session_id="training", template_name="qwen3")
+agent = Agent(model=model, session_manager=session)
+agent("What is Python?")  # Auto-saved to ~/.strands/training_data/training.jsonl
 ```
 
 ---
