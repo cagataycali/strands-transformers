@@ -5,3 +5,4 @@ __pycache__
 *_merged
 qwen3_*
 sessions
+*.egg-info

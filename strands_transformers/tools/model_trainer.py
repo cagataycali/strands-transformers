@@ -6,18 +6,19 @@ Model Trainer - Tool for fine-tuning language models.
 - LoRA/PEFT with expert layer targeting
 - Modern hyperparameters (cosine with min_lr)
 - Merge and unload pattern for inference
-- 4-bit quantization support
 
 Supports models like Qwen3-1.7B, gpt-oss-20b, Llama, Mistral, etc.
 Built with the modern @tool decorator pattern.
 """
 
+import os
 import traceback
+
+import torch
+
 from strands import tool
 from typing import Dict, Any, Optional, List, Union
-import os
 import json
-import torch
 from pathlib import Path
 from datetime import datetime
 
@@ -25,11 +26,11 @@ from datetime import datetime
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
-    BitsAndBytesConfig,
     TrainingArguments,
     Trainer,
     DataCollatorForLanguageModeling,
 )
+
 from datasets import load_dataset, Dataset as HFDataset
 from peft import LoraConfig, get_peft_model, PeftModel
 
@@ -54,7 +55,6 @@ def model_trainer(
     dataset: Optional[str] = None,
     output_dir: Optional[str] = None,
     use_lora: bool = False,
-    quantize_4bit: bool = False,
     batch_size: int = 4,
     learning_rate: float = 2e-4,
     num_epochs: int = 3,
@@ -92,8 +92,6 @@ def model_trainer(
     - export: Export model for deployment
     - info: Get model information
     - load_for_inference: Merge LoRA weights for fast inference
-    - export_to_ollama: Export merged model to Ollama (use prompt field for model name)
-    - convert_to_gguf: Convert HuggingFace model to GGUF format (use prompt for quantization type)
 
     Args:
         action: Action to perform
@@ -101,7 +99,6 @@ def model_trainer(
         dataset: Dataset name/path (HF Hub, file, or directory)
         output_dir: Output directory for trained/merged model
         use_lora: Use LoRA for efficient training (recommended!)
-        quantize_4bit: Use 4-bit quantization with bitsandbytes
         batch_size: Training batch size per device
         learning_rate: Learning rate (2e-4 good for LoRA)
         num_epochs: Number of training epochs
@@ -154,13 +151,6 @@ def model_trainer(
             model_name="./qwen3_merged",
             prompt="Hello! I am"
         )
-
-        # Export to Ollama
-        model_trainer(
-            action="export_to_ollama",
-            model_name="./qwen3_merged",
-            prompt="my-custom-model"  # Ollama model name
-        )
     """
 
     try:
@@ -170,7 +160,6 @@ def model_trainer(
                 dataset=dataset,
                 output_dir=output_dir,
                 use_lora=use_lora,
-                quantize_4bit=quantize_4bit,
                 batch_size=batch_size,
                 learning_rate=learning_rate,
                 num_epochs=num_epochs,
@@ -232,25 +221,12 @@ def model_trainer(
                 output_dir=output_dir,
             )
 
-        elif action == "export_to_ollama":
-            return _export_to_ollama(
-                model_name=model_name,
-                ollama_model_name=prompt,  # Use prompt field for Ollama model name
-            )
-
-        elif action == "convert_to_gguf":
-            return _convert_to_gguf(
-                model_name=model_name,
-                output_dir=output_dir,
-                quantization=prompt,  # Use prompt field for quantization type
-            )
-
         else:
             return {
                 "status": "error",
                 "content": [
                     {
-                        "text": f"Unknown action: {action}. Valid actions: train, load_dataset, generate, evaluate, export, info, load_for_inference, export_to_ollama, convert_to_gguf"
+                        "text": f"Unknown action: {action}. Valid actions: train, load_dataset, generate, evaluate, export, info, load_for_inference"
                     }
                 ],
             }
@@ -275,8 +251,19 @@ def _load_dataset_from_source(
 
     # Single file
     if dataset_path.is_file():
+        texts = []
         with open(dataset_path, "r", encoding="utf-8") as f:
-            texts = [line.strip() for line in f if line.strip()]
+            for line in f:
+                line = line.strip()
+                if line:
+                    # Check if line is JSONL format
+                    try:
+                        data = json.loads(line)
+                        # Extract the text field from JSON
+                        texts.append(data.get(dataset_text_field, line))
+                    except json.JSONDecodeError:
+                        # Plain text file - use line as-is
+                        texts.append(line)
         return HFDataset.from_dict({dataset_text_field: texts})
 
     # Directory of text files
@@ -297,7 +284,6 @@ def _train_model(
     dataset: str,
     output_dir: Optional[str],
     use_lora: bool,
-    quantize_4bit: bool,
     batch_size: int,
     learning_rate: float,
     num_epochs: int,
@@ -340,7 +326,7 @@ def _train_model(
     results = []
     results.append(f"🚀 Starting training: {model_name}")
     results.append(f"📁 Output directory: {output_dir}")
-    results.append(f"🔧 LoRA: {use_lora}, 4-bit: {quantize_4bit}")
+    results.append(f"🔧 LoRA: {use_lora}")
 
     # Load tokenizer
     results.append("\n📝 Loading tokenizer...")
@@ -369,19 +355,6 @@ def _train_model(
         "use_cache": False,  # Required for gradient checkpointing
         "device_map": device_config,
     }
-
-    if quantize_4bit:
-        if not torch.cuda.is_available():
-            results.append("   ⚠️  4-bit quantization requires CUDA, skipping...")
-        else:
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.bfloat16,
-                bnb_4bit_use_double_quant=True,
-            )
-            model_kwargs["quantization_config"] = bnb_config
-            results.append("   Using 4-bit quantization")
 
     model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
 
@@ -520,7 +493,6 @@ def _train_model(
             {
                 "model_name": model_name,
                 "use_lora": use_lora,
-                "quantize_4bit": quantize_4bit,
                 "lora_config": (
                     {
                         "r": lora_r,
@@ -1058,305 +1030,3 @@ def _load_merged_model(
         f"\n🚀 Load with: AutoModelForCausalLM.from_pretrained('{output_dir}')"
     )
 
-    return {"status": "success", "content": [{"text": "\n".join(results)}]}
-
-
-def _export_to_ollama(
-    model_name: str,
-    ollama_model_name: Optional[str],
-) -> Dict[str, Any]:
-    """Export fine-tuned model to Ollama.
-
-    This creates a Modelfile and imports the model to Ollama.
-    Requires ollama CLI to be installed and running.
-    """
-
-    if ollama_model_name is None:
-        # Auto-generate name from model path
-        ollama_model_name = f"finetuned-{Path(model_name).name}"
-
-    results = []
-    results.append(f"🦙 Exporting to Ollama: {ollama_model_name}")
-    results.append(f"📁 Source model: {model_name}")
-
-    model_path = Path(model_name).expanduser().resolve()
-
-    # Check if model exists
-    if not model_path.exists():
-        return {
-            "status": "error",
-            "content": [{"text": f"Error: Model path does not exist: {model_path}"}],
-        }
-
-    # Check if this is a merged model or needs merging
-    merged_info_file = model_path / "merged_info.json"
-    training_config_file = model_path / "training_config.json"
-    is_lora_model = training_config_file.exists() and not merged_info_file.exists()
-
-    if is_lora_model:
-        results.append("\n⚠️  Detected LoRA model - needs merging first!")
-        results.append(
-            "   Run: model_trainer(action='load_for_inference', model_name='...', output_dir='...')"
-        )
-        return {"status": "error", "content": [{"text": "\n".join(results)}]}
-
-    # Create temporary Modelfile
-    modelfile_dir = Path.home() / ".cache" / "model_trainer_ollama"
-    modelfile_dir.mkdir(parents=True, exist_ok=True)
-    modelfile_path = modelfile_dir / f"Modelfile.{ollama_model_name}"
-
-    results.append(f"\n📝 Creating Modelfile...")
-
-    # Read model config to get parameters
-    try:
-        from transformers import AutoConfig
-
-        config = AutoConfig.from_pretrained(str(model_path), trust_remote_code=True)
-
-        # Create Modelfile content
-        modelfile_content = f"""# Modelfile for {ollama_model_name}
-FROM {model_path}
-
-# Model parameters
-PARAMETER temperature 0.7
-PARAMETER top_p 0.9
-PARAMETER top_k 40
-
-# System prompt (customize as needed)
-SYSTEM You are a helpful AI assistant.
-"""
-
-        with open(modelfile_path, "w") as f:
-            f.write(modelfile_content)
-
-        results.append(f"   Modelfile: {modelfile_path}")
-        results.append(f"\n📦 Importing to Ollama...")
-
-        # Import to Ollama using shell command
-        import subprocess
-
-        try:
-            # Run ollama create
-            cmd = ["ollama", "create", ollama_model_name, "-f", str(modelfile_path)]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=300,  # 5 minute timeout for large models
-            )
-
-            if result.returncode == 0:
-                results.append("   ✅ Successfully imported to Ollama!")
-                results.append(f"\n🚀 Usage:")
-                results.append(f"   ollama run {ollama_model_name}")
-                results.append(f"\n💡 In Python (Strands):")
-                results.append(f"   from strands.models.ollama import OllamaModel")
-                results.append(
-                    f"   model = OllamaModel(host='http://localhost:11434', model_id='{ollama_model_name}')"
-                )
-
-                return {"status": "success", "content": [{"text": "\n".join(results)}]}
-            else:
-                error_msg = result.stderr if result.stderr else result.stdout
-                results.append(f"\n❌ Ollama import failed:")
-                results.append(f"   {error_msg}")
-                return {"status": "error", "content": [{"text": "\n".join(results)}]}
-
-        except FileNotFoundError:
-            results.append("\n❌ Ollama CLI not found!")
-            results.append("   Install: https://ollama.com/download")
-            return {"status": "error", "content": [{"text": "\n".join(results)}]}
-
-        except subprocess.TimeoutExpired:
-            results.append("\n❌ Ollama import timed out (> 5 minutes)")
-            return {"status": "error", "content": [{"text": "\n".join(results)}]}
-
-    except Exception as e:
-        tb = traceback.format_exc()
-        return {
-            "status": "error",
-            "content": [
-                {"text": f"Error creating Modelfile: {str(e)}\n\nTraceback:\n{tb}"}
-            ],
-        }
-
-
-def _convert_to_gguf(
-    model_name: str,
-    output_dir: Optional[str],
-    quantization: Optional[str],
-) -> Dict[str, Any]:
-    """Convert HuggingFace model to GGUF format for Ollama.
-
-    This uses llama.cpp's conversion script to create GGUF files.
-    Requires llama.cpp to be cloned and accessible.
-    """
-
-    if output_dir is None:
-        output_dir = f"{model_name}_gguf"
-
-    output_dir = os.path.expanduser(output_dir)
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Default quantization
-    if quantization is None:
-        quantization = "Q4_K_M"  # Good balance of quality and size
-
-    results = []
-    results.append(f"🔄 Converting to GGUF: {model_name}")
-    results.append(f"📁 Output directory: {output_dir}")
-    results.append(f"⚙️ Quantization: {quantization}")
-
-    model_path = Path(model_name).expanduser().resolve()
-
-    # Check if model exists
-    if not model_path.exists():
-        return {
-            "status": "error",
-            "content": [{"text": f"Error: Model path does not exist: {model_path}"}],
-        }
-
-    # Check if this is a merged model
-    merged_info_file = model_path / "merged_info.json"
-    training_config_file = model_path / "training_config.json"
-    is_lora_model = training_config_file.exists() and not merged_info_file.exists()
-
-    if is_lora_model:
-        results.append("\n⚠️  Detected LoRA model - needs merging first!")
-        results.append(
-            "   Run: model_trainer(action='load_for_inference', model_name='...', output_dir='...')"
-        )
-        return {"status": "error", "content": [{"text": "\n".join(results)}]}
-
-    # Check for llama.cpp
-    llama_cpp_dir = Path.home() / "llama.cpp"
-    convert_script = llama_cpp_dir / "convert_hf_to_gguf.py"
-    quantize_binary = llama_cpp_dir / "build" / "bin" / "llama-quantize"
-
-    if not convert_script.exists():
-        results.append("\n❌ llama.cpp not found!")
-        results.append(f"   Expected: {convert_script}")
-        results.append("\n📝 Installation instructions:")
-        results.append(
-            "   git clone https://github.com/ggerganov/llama.cpp ~/llama.cpp"
-        )
-        results.append("   cd ~/llama.cpp")
-        results.append("   make")
-        results.append(f"   pip install -r requirements.txt")
-        return {"status": "error", "content": [{"text": "\n".join(results)}]}
-
-    import subprocess
-    import sys
-
-    try:
-        # Step 1: Convert to FP16 GGUF
-        results.append("\n📝 Step 1: Converting to FP16 GGUF...")
-        fp16_output = Path(output_dir) / "model-f16.gguf"
-
-        cmd_convert = [
-            sys.executable,
-            str(convert_script),
-            str(model_path),
-            "--outfile",
-            str(fp16_output),
-            "--outtype",
-            "f16",
-        ]
-
-        result = subprocess.run(
-            cmd_convert,
-            capture_output=True,
-            text=True,
-            timeout=600,  # 10 minute timeout
-        )
-
-        if result.returncode != 0:
-            results.append(f"\n❌ Conversion failed:")
-            results.append(f"   {result.stderr}")
-            return {"status": "error", "content": [{"text": "\n".join(results)}]}
-
-        results.append(f"   ✅ FP16 GGUF created: {fp16_output}")
-
-        # Step 2: Quantize
-        if quantization != "f16":
-            results.append(f"\n📝 Step 2: Quantizing to {quantization}...")
-            quantized_output = Path(output_dir) / f"model-{quantization.lower()}.gguf"
-
-            if not quantize_binary.exists():
-                results.append(f"\n⚠️  llama-quantize not found at {quantize_binary}")
-                results.append("   Skipping quantization step")
-                results.append(f"   You can use the FP16 model: {fp16_output}")
-                final_output = fp16_output
-            else:
-                cmd_quantize = [
-                    str(quantize_binary),
-                    str(fp16_output),
-                    str(quantized_output),
-                    quantization,
-                ]
-
-                result = subprocess.run(
-                    cmd_quantize,
-                    capture_output=True,
-                    text=True,
-                    timeout=600,
-                )
-
-                if result.returncode != 0:
-                    results.append(f"\n❌ Quantization failed:")
-                    results.append(f"   {result.stderr}")
-                    results.append(f"   You can use the FP16 model: {fp16_output}")
-                    final_output = fp16_output
-                else:
-                    results.append(f"   ✅ Quantized GGUF created: {quantized_output}")
-                    final_output = quantized_output
-        else:
-            final_output = fp16_output
-
-        # Step 3: Create Modelfile for Ollama
-        results.append(f"\n📝 Step 3: Creating Ollama Modelfile...")
-        modelfile_path = Path(output_dir) / "Modelfile"
-
-        ollama_model_name = f"{model_path.name}-gguf"
-
-        modelfile_content = f"""# Modelfile for {ollama_model_name}
-FROM {final_output.resolve()}
-
-# Model parameters
-PARAMETER temperature 0.7
-PARAMETER top_p 0.9
-PARAMETER top_k 40
-PARAMETER stop "<|im_start|>"
-PARAMETER stop "<|im_end|>"
-
-# System prompt
-SYSTEM You are a helpful AI assistant.
-"""
-
-        with open(modelfile_path, "w") as f:
-            f.write(modelfile_content)
-
-        results.append(f"   ✅ Modelfile created: {modelfile_path}")
-        results.append(f"\n✅ Conversion complete!")
-        results.append(f"\n📦 GGUF model: {final_output}")
-        results.append(f"\n🚀 Import to Ollama:")
-        results.append(f"   ollama create {ollama_model_name} -f {modelfile_path}")
-        results.append(f"\n💡 Or use model_trainer:")
-        results.append(
-            f"   model_trainer(action='export_to_ollama', model_name='{model_name}', prompt='{ollama_model_name}')"
-        )
-
-        return {"status": "success", "content": [{"text": "\n".join(results)}]}
-
-    except subprocess.TimeoutExpired:
-        results.append("\n❌ Conversion timed out (> 10 minutes)")
-        return {"status": "error", "content": [{"text": "\n".join(results)}]}
-
-    except Exception as e:
-        tb = traceback.format_exc()
-        return {
-            "status": "error",
-            "content": [
-                {"text": f"Error during conversion: {str(e)}\n\nTraceback:\n{tb}"}
-            ],
-        }

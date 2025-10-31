@@ -88,8 +88,17 @@ class JsonlSessionManager(SessionManager):
         """Format agent's message history into Qwen3 training format."""
         # Build system prompt with tools
         system_parts = []
-        if self.system_prompt:
-            system_parts.append(self.system_prompt)
+        
+        # Get current system prompt from agent (captures dynamic prompts)
+        current_system_prompt = None
+        if hasattr(agent, "system_prompt") and agent.system_prompt:
+            current_system_prompt = agent.system_prompt
+        elif self.system_prompt:
+            current_system_prompt = self.system_prompt
+        else:
+            current_system_prompt = "You are a helpful AI assistant."
+        
+        system_parts.append(current_system_prompt)
 
         # Add tool definitions if available
         if hasattr(agent, "tools") and agent.tools:
