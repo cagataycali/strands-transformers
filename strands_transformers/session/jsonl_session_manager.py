@@ -57,8 +57,11 @@ class JsonlSessionManager(SessionManager):
         )
 
     def _load_template(self) -> Template:
-        """Load Jinja2 template from ./templates/ directory."""
-        template_path = Path("./templates") / f"{self.template_name}.j2"
+        """Load Jinja2 template from package templates directory."""
+        # Get package directory (strands_transformers/)
+        package_dir = Path(__file__).parent.parent
+        template_path = package_dir / "templates" / f"{self.template_name}.j2"
+
         if not template_path.exists():
             raise FileNotFoundError(f"Template not found: {template_path}")
 
