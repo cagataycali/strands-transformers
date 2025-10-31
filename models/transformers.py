@@ -490,10 +490,12 @@ class TransformerModel(Model):
         logger.debug("generating with streaming")
 
         # Create streamer
+        # NOTE: skip_special_tokens=True removes chat template tokens like <|im_end|>
+        # but preserves regular vocabulary tokens like <think> and </think>
         streamer = TextIteratorStreamer(
             self.tokenizer,
             skip_prompt=True,
-            skip_special_tokens=False,  # Keep special tokens for thinking mode parsing
+            skip_special_tokens=True,  # Skip chat template tokens, keep <think> tags
         )
 
         # Generation kwargs

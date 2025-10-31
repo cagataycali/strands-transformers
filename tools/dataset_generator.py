@@ -2,11 +2,11 @@
 Dataset Generator - Create training datasets for LLM fine-tuning.
 
 Supports multiple chat formats:
-- Qwen (with tool calling support and thinking mode for Qwen3)
+- Qwen
 - Llama
 - Alpaca
 - ShareGPT
-- Custom templates
+- Custom templates from ./templates/ directory
 
 Built with the @tool decorator pattern.
 """
@@ -19,7 +19,7 @@ from jinja2 import Template
 
 
 # Pre-defined templates for popular formats
-# Qwen3 official template format - matches qwen3-1-7b.txt
+# Qwen3 official template format
 QWEN_TEMPLATE = """{%- if tools -%}
 <|im_start|>system
 {{ system_prompt }}
@@ -114,6 +114,7 @@ def dataset_generator(
     examples: Optional[List[Dict[str, Any]]] = None,
     output_file: Optional[str] = None,
     format: str = "qwen",
+    template_name: Optional[str] = None,
     custom_template: Optional[str] = None,
     template_file: Optional[str] = None,
     count: int = None,
@@ -140,6 +141,7 @@ def dataset_generator(
             - tool_responses: Optional list of tool response strings
         output_file: Output JSONL file path
         format: Dataset format (qwen, llama, alpaca, sharegpt, custom)
+        template_name: Name of template from ./templates/ directory (e.g., "llama3.1", "llama3.2", "gpt-oss")
         custom_template: Custom Jinja2 template string
         template_file: Path to custom template file
         count: Number of examples to show in preview
@@ -148,6 +150,14 @@ def dataset_generator(
         Dict with status and results
 
     Examples:
+        # Use custom template from ./templates/
+        dataset_generator(
+            action="generate",
+            template_name="llama3.1",
+            output_file="llama_data.jsonl",
+            examples=[...]
+        )
+
         # Generate Qwen dataset with thinking mode (Qwen3)
         dataset_generator(
             action="generate",
@@ -164,52 +174,10 @@ def dataset_generator(
             ]
         )
 
-        # Generate Qwen dataset with tool calling (official format)
-        dataset_generator(
-            action="generate",
-            format="qwen",
-            output_file="training_data.jsonl",
-            examples=[
-                {
-                    "system_prompt": "You are helpful assistant.",
-                    "tools": [
-                        {
-                            "name": "calculator",
-                            "description": "Perform mathematical calculations",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "expression": {"type": "string", "description": "Math expression to evaluate"}
-                                },
-                                "required": ["expression"]
-                            }
-                        }
-                    ],
-                    "instruction": "What is 2+2?",
-                    "tool_calls": [{"name": "calculator", "arguments": {"expression": "2+2"}}],
-                    "tool_responses": ["4"],
-                    "response": "The answer is 4."
-                }
-            ]
-        )
-
-        # Generate simple Alpaca format
-        dataset_generator(
-            action="generate",
-            format="alpaca",
-            output_file="alpaca_data.jsonl",
-            examples=[
-                {
-                    "instruction": "What is Python?",
-                    "response": "Python is a programming language."
-                }
-            ]
-        )
-
         # Preview without saving
         dataset_generator(
             action="preview",
-            format="qwen",
+            template_name="gpt-oss",
             examples=[...],
             count=2
         )
@@ -224,6 +192,7 @@ def dataset_generator(
                 examples=examples,
                 output_file=output_file,
                 format=format,
+                template_name=template_name,
                 custom_template=custom_template,
                 template_file=template_file,
             )
@@ -232,6 +201,7 @@ def dataset_generator(
             return _preview_dataset(
                 examples=examples,
                 format=format,
+                template_name=template_name,
                 custom_template=custom_template,
                 template_file=template_file,
                 count=count or 3,
@@ -261,9 +231,23 @@ def dataset_generator(
 
 
 def _get_template(
-    format: str, custom_template: Optional[str], template_file: Optional[str]
+    format: str,
+    template_name: Optional[str],
+    custom_template: Optional[str],
+    template_file: Optional[str],
 ) -> Template:
     """Get Jinja2 template for the specified format."""
+
+    # Template from ./templates/ directory (highest priority)
+    if template_name:
+        template_dir = Path.cwd() / "templates"
+        template_path = template_dir / f"{template_name}.j2"
+        if template_path.exists():
+            with open(template_path, "r") as f:
+                template_str = f.read()
+            return Template(template_str)
+        else:
+            raise ValueError(f"Template not found: {template_path}")
 
     # Custom template file
     if template_file:
@@ -295,6 +279,7 @@ def _generate_dataset(
     examples: List[Dict[str, Any]],
     output_file: str,
     format: str,
+    template_name: Optional[str],
     custom_template: Optional[str],
     template_file: Optional[str],
 ) -> Dict[str, Any]:
@@ -313,11 +298,12 @@ def _generate_dataset(
         }
 
     results = []
-    results.append(f"🎯 Generating dataset with format: {format}")
+    format_name = template_name if template_name else format
+    results.append(f"🎯 Generating dataset with format: {format_name}")
     results.append(f"📊 Number of examples: {len(examples)}")
 
     # Get template
-    template = _get_template(format, custom_template, template_file)
+    template = _get_template(format, template_name, custom_template, template_file)
 
     # Format examples
     formatted_examples = []
@@ -352,6 +338,7 @@ def _generate_dataset(
 def _preview_dataset(
     examples: List[Dict[str, Any]],
     format: str,
+    template_name: Optional[str],
     custom_template: Optional[str],
     template_file: Optional[str],
     count: int,
@@ -365,10 +352,11 @@ def _preview_dataset(
         }
 
     results = []
-    results.append(f"👀 Preview of {format} format\n")
+    format_name = template_name if template_name else format
+    results.append(f"👀 Preview of {format_name} format\n")
 
     # Get template
-    template = _get_template(format, custom_template, template_file)
+    template = _get_template(format, template_name, custom_template, template_file)
 
     # Format and show examples
     for i, example in enumerate(examples[:count]):
@@ -460,6 +448,20 @@ def _list_formats() -> Dict[str, Any]:
     results = []
     results.append("📋 Available Dataset Formats:\n")
 
+    # Check for custom templates in ./templates/
+    template_dir = Path.cwd() / "templates"
+    custom_templates = []
+    if template_dir.exists():
+        custom_templates = [f.stem for f in template_dir.glob("*.j2")]
+
+    if custom_templates:
+        results.append("🎨 **Custom Templates** (from ./templates/):")
+        for tmpl in sorted(custom_templates):
+            results.append(f"   - **{tmpl}** (use template_name='{tmpl}')")
+        results.append("")
+
+    results.append("📦 **Built-in Formats:**")
+    results.append("")
     results.append("1. **qwen** - Qwen chat format with tool calling support")
     results.append("   Required: system_prompt, instruction, response")
     results.append(
@@ -484,6 +486,7 @@ def _list_formats() -> Dict[str, Any]:
     results.append("5. **custom** - Use custom_template or template_file")
     results.append("   Provide Jinja2 template with your format\n")
 
+    results.append("💡 Use template_name to load templates from ./templates/ directory")
     results.append("💡 Use action='preview' to see formatted examples before saving")
 
     return {"status": "success", "content": [{"text": "\n".join(results)}]}

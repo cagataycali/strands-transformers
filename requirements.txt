@@ -4,3 +4,4 @@ sentencepiece
 trl
 protobuf
 transformers
+jinja2

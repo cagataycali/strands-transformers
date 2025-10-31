@@ -1,7 +1,6 @@
 """
-Model Trainer - Production-grade tool for fine-tuning language models.
+Model Trainer - Tool for fine-tuning language models.
 
-Based on OpenAI's gpt-oss cookbook with best practices:
 - TRL SFTTrainer for supervised fine-tuning
 - Proper chat template handling
 - LoRA/PEFT with expert layer targeting
@@ -13,6 +12,7 @@ Supports models like Qwen3-1.7B, gpt-oss-20b, Llama, Mistral, etc.
 Built with the modern @tool decorator pattern.
 """
 
+import traceback
 from strands import tool
 from typing import Dict, Any, Optional, List, Union
 import os
@@ -32,6 +32,9 @@ from transformers import (
 )
 from datasets import load_dataset, Dataset as HFDataset
 from peft import LoraConfig, get_peft_model, PeftModel
+
+from transformers import TextIteratorStreamer
+from threading import Thread
 
 # TRL imports - optional, will be imported when needed
 try:
@@ -77,9 +80,9 @@ def model_trainer(
     top_k: int = 20,
 ) -> Dict[str, Any]:
     """
-    Production-grade model training tool based on OpenAI's gpt-oss cookbook.
+    Model training tool for agents.
 
-    Supports Qwen3 thinking mode - models can use internal reasoning before responding.
+    Supports thinking mode - models can use internal reasoning before responding.
 
     Actions:
     - train: Fine-tune a model with TRL SFTTrainer
@@ -253,8 +256,6 @@ def model_trainer(
             }
 
     except Exception as e:
-        import traceback
-
         tb = traceback.format_exc()
         return {
             "status": "error",
@@ -708,10 +709,6 @@ def _generate_text(
     print("\n".join(results))
 
     if stream:
-        # Import TextIteratorStreamer for streaming
-        from transformers import TextIteratorStreamer
-        from threading import Thread
-
         # Create streamer
         streamer = TextIteratorStreamer(
             tokenizer, skip_prompt=True, skip_special_tokens=True
@@ -1175,8 +1172,6 @@ SYSTEM You are a helpful AI assistant.
             return {"status": "error", "content": [{"text": "\n".join(results)}]}
 
     except Exception as e:
-        import traceback
-
         tb = traceback.format_exc()
         return {
             "status": "error",
@@ -1358,8 +1353,6 @@ SYSTEM You are a helpful AI assistant.
         return {"status": "error", "content": [{"text": "\n".join(results)}]}
 
     except Exception as e:
-        import traceback
-
         tb = traceback.format_exc()
         return {
             "status": "error",

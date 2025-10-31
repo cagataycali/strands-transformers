@@ -1,0 +1,47 @@
+{%- if system_prompt or tools %}<|start_header_id|>system<|end_header_id|>
+{%- if system_prompt %}
+
+{{ system_prompt }}
+{%- endif %}
+{%- if tools %}
+
+Cutting Knowledge Date: December 2023
+
+When you receive a tool call response, use the output to format an answer to the orginal user question.
+
+You are a helpful assistant with tool calling capabilities.
+{%- endif %}<|eot_id|>
+{%- endif %}
+{%- if tools and instruction %}
+<|start_header_id|>user<|end_header_id|>
+
+Given the following functions, please respond with a JSON for a function call with its proper arguments that best answers the given prompt.
+
+Respond in the format {"name": function name, "parameters": dictionary of argument name and its value}. Do not use variables.
+
+{% for tool in tools %}
+{{ tool }}
+{% endfor %}
+Question: {{ instruction }}<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+{%- elif instruction %}
+<|start_header_id|>user<|end_header_id|>
+
+{{ instruction }}<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+{%- endif %}
+{%- if tool_calls %}
+{%- for tool_call in tool_calls %}
+{"name": "{{ tool_call.name }}", "parameters": {{ tool_call.arguments | tojson }}}
+{%- endfor %}
+{%- else %}
+{{ response }}
+{%- endif %}
+{%- if tool_responses %}
+<|eot_id|><|start_header_id|>ipython<|end_header_id|>
+
+{% for tool_response in tool_responses %}{{ tool_response }}
+{% endfor %}<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+{{ response }}
+{%- endif %}
