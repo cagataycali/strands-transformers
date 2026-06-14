@@ -85,6 +85,11 @@ def run() -> int:
     )
 
     # ── audio round-trip (TTS → wav → ASR), exercises io + torchcodec compat ──
+    try:
+        import torch
+        torch.manual_seed(0)  # tiny-random VITS is numerically unstable on some seeds
+    except ImportError:
+        pass
     tts = use_transformers(
         action="run",
         task="text-to-audio",
