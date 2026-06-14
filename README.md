@@ -293,6 +293,17 @@ runtime in [`core/registry.py`](strands_transformers/core/registry.py):
 
 Nothing is hardcoded per-task. New transformers task ⇒ instantly available.
 
+```text
+$ use_transformers(action="tasks")
+🤗 transformers supports 24 tasks (100% coverage):
+  • any-to-any                      [multimodal]  default: google/gemma-3n-E4B-it
+  • automatic-speech-recognition    [multimodal]  auto: AutoModelForCTC, …SpeechSeq2Seq
+  • image-text-to-text              [multimodal]  auto: AutoModelForImageTextToText
+  • object-detection                [multimodal]  auto: AutoModelForObjectDetection
+  • text-to-audio                   [audio]       auto: AutoModelForTextToWaveform
+  … 19 more — the list is read from transformers at runtime, so it's never stale.
+```
+
 ## Robotics / Vision-Language-Action (VLA)
 
 VLA models take camera images + a language instruction (+ robot state) and emit
