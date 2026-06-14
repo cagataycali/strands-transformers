@@ -67,6 +67,46 @@ def run() -> int:
         )
     )
 
+    # ── image task (structured output serialization) ──
+    import numpy as np
+    from PIL import Image
+
+    img = Image.fromarray(np.random.default_rng(0).integers(0, 255, (64, 64, 3), dtype=np.uint8))
+    results.append(
+        check(
+            "run image-classification",
+            use_transformers(
+                action="run",
+                task="image-classification",
+                model="hf-internal-testing/tiny-random-vit",
+                inputs=img,
+            ),
+        )
+    )
+
+    # ── audio round-trip (TTS → wav → ASR), exercises io + torchcodec compat ──
+    tts = use_transformers(
+        action="run",
+        task="text-to-audio",
+        model="hf-internal-testing/tiny-random-VitsModel",
+        inputs="smoke test",
+    )
+    results.append(check("run text-to-audio (artifact)", tts,
+                         predicate=lambda r: r["status"] == "success" and bool(r.get("artifacts"))))
+    wav = tts.get("artifacts", [None])[0]
+    if wav:
+        results.append(
+            check(
+                "run automatic-speech-recognition (wav path)",
+                use_transformers(
+                    action="run",
+                    task="automatic-speech-recognition",
+                    model="hf-internal-testing/tiny-random-wav2vec2",
+                    inputs=wav,
+                ),
+            )
+        )
+
     passed = sum(results)
     total = len(results)
     print(f"\n{passed}/{total} checks passed")
