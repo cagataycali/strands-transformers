@@ -1,43 +1,48 @@
-from strands import Agent  # pip3 install strands-agents
-from strands_tools import shell, use_agent, calculator  # pip3 install strands-agents-tools
+"""Example: a fully multimodal Strands agent powered by transformers.
 
-from strands_transformers.models.transformers import (
-    TransformerModel,
-)  # Local transformers model provider
-from strands_transformers.session.jsonl_session_manager import JsonlSessionManager
+The agent uses a hosted/local LLM as its reasoning brain and `use_transformers`
+as its hands — giving it 100% of HuggingFace transformers: any task, any modality.
 
-# Create a TransformerModel instance with Qwen3-1.7B
-# Use fine-tuned merged model
-transformer_model = TransformerModel(
-    model_path="./qwen3_merged_session_trained",  # Fine-tuned Strands-aware model
-    # model_path="Qwen/Qwen3-1.7B",  # Or use base model
-    device="auto",  # Automatically selects cuda/mps/cpu
-    enable_thinking=True,  # Enable Qwen3 thinking mode
-    params={
-        "max_tokens": 500,
-        "temperature": 1,
-        "top_p": 0.9,
-        "top_k": 20,
-        "repetition_penalty": 1.2,  # Prevent repetition loops
-    },
-)
+    python agent.py
+    # then: "transcribe sample.wav", "what's in cat.jpg?", "say hello as audio"
 
-session_manager = JsonlSessionManager(
-    session_id="test_strands_use_agent", template_name="qwen3", storage_dir="./test_training_data"
-)
+Swap the brain for a LOCAL HF model with TransformerModel (see bottom).
+"""
 
-# Create an agent using the TransformerModel
+from strands import Agent
+
+from strands_transformers import use_transformers
+
+SYSTEM_PROMPT = """You are a multimodal AI with full access to HuggingFace transformers
+through the `use_transformers` tool. You can run ANY task across text, image, video,
+audio, and robot-state — natively.
+
+Workflow:
+1. Don't guess task names — discover: use_transformers(action="tasks") or
+   action="task_info" / action="modalities".
+2. Run with: use_transformers(action="run", task="<task>", inputs=<path|url|text|dict>).
+   For multimodal models pass a dict, e.g. {"images": "scene.jpg", "text": "..."}.
+3. For low-level / robot-action (VLA) models, load components with action="call"
+   (AutoProcessor / AutoModelForImageTextToText) and cache them with cache_key.
+Generated audio/images are saved to disk; report their paths to the user."""
+
 agent = Agent(
-    model=transformer_model,
-    tools=[shell, use_agent, calculator],
-    # session_manager=session_manager
+    tools=[use_transformers],
+    system_prompt=SYSTEM_PROMPT,
 )
 
-# Use the agent
-# agent("What is Strands Agents SDK?")  # Prints model output to stdout by default
-# agent("list your tools")  # Prints model output to stdout by default
-# agent("run ls -la with shell tool")  # Prints model output to stdout by default
+if __name__ == "__main__":
+    print("🤗 Multimodal transformers agent. Ctrl-C to exit.\n")
+    while True:
+        try:
+            agent(input("\n# "))
+        except (KeyboardInterrupt, EOFError):
+            print("\nbye 👋")
+            break
 
-# interactive mode
-while True:
-    agent(input("\n# "))
+
+# ─── Alternative: use a LOCAL HuggingFace model as the agent's brain ───
+#
+# from strands_transformers import TransformerModel
+# brain = TransformerModel(model_path="Qwen/Qwen3-1.7B", device="auto")
+# agent = Agent(model=brain, tools=[use_transformers], system_prompt=SYSTEM_PROMPT)

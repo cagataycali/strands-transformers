@@ -1,679 +1,284 @@
-"""
-Universal Transformers Tool - COMPLETE access to transformers library.
+"""use_transformers — THE universal entrypoint to all of HuggingFace transformers.
 
-Built following the use_aws pattern - no hardcoded operations!
-Universal abstraction layer over transformers, sentence-transformers, diffusers, and more.
+Like `use_aws` wraps boto3 and `use_lerobot` wraps lerobot, this wraps the entire
+transformers library with ZERO hardcoded operations. It is the single tool an
+agent needs to run any of transformers' tasks across every modality:
 
-This tool provides dynamic access to ANY class, function, or method in the transformers
-ecosystem without hardcoding specific operations. Just like use_aws wraps boto3 universally,
-this wraps the entire transformers library.
+    image / video / audio / text / robot-state  IN
+    text / audio / image / labels / actions      OUT   — natively.
 
-Key Features:
-1. Universal Access - Call ANY transformers function/class/method dynamically
-2. Module Discovery - List available modules, classes, functions, methods
-3. Smart Caching - Cache loaded models and tokenizers for performance
-4. Dynamic Imports - Load any transformers-related package on demand
-5. Parameter Introspection - Generate schemas for functions/methods
+It has two layers:
 
-Examples:
-    # Load a model (returns cached reference)
-    use_transformers(
-        action="call",
-        module="transformers",
-        target="AutoModelForCausalLM.from_pretrained",
-        parameters={"pretrained_model_name_or_path": "gpt2"},
-        cache_key="gpt2_model"
-    )
+1. RUN (high-level): use transformers.pipeline() — the native multimodal runner.
+   Input can be a file path, URL, base64 data-URI, raw text, or numpy array.
+   Output (audio, images) is auto-saved to disk and returned by path.
 
-    # Call pipeline function
-    use_transformers(
-        action="call",
-        module="transformers",
-        target="pipeline",
-        parameters={"task": "text-generation", "model": "gpt2"}
-    )
+       use_transformers(action="run", task="image-text-to-text",
+                        model="allenai/MolmoAct2-SO100_101",
+                        inputs={"images": "scene.jpg", "text": "pick the cube"})
 
-    # Call method on cached model
-    use_transformers(
-        action="call",
-        module="transformers",
-        target="cached:gpt2_model.generate",
-        parameters={"input_ids": [...], "max_new_tokens": 50}
-    )
+       use_transformers(action="run", task="automatic-speech-recognition",
+                        inputs="recording.wav")
 
-    # Use sentence-transformers
-    use_transformers(
-        action="call",
-        module="sentence_transformers",
-        target="SentenceTransformer",
-        parameters={"model_name_or_path": "all-MiniLM-L6-v2"},
-        cache_key="encoder"
-    )
+       use_transformers(action="run", task="text-to-audio", model="suno/bark-small",
+                        inputs="Hello from Strands!")
 
-    # Call method on cached encoder
-    use_transformers(
-        action="call",
-        module="sentence_transformers",
-        target="cached:encoder.encode",
-        parameters={"sentences": ["Hello", "World"]}
-    )
+2. CALL (low-level): dynamically resolve & call ANY transformers class / function /
+   method — AutoModelForImageTextToText, AutoProcessor, model.generate, etc. For
+   VLA / robot-action models that need processor(images, text, state) → model(**).
 
-    # Discovery actions
-    use_transformers(action="list_modules")
-    use_transformers(action="list_classes", module="transformers")
-    use_transformers(action="list_functions", module="transformers")
-    use_transformers(action="list_methods", module="transformers", target="AutoModel")
-    use_transformers(action="inspect", module="transformers", target="pipeline")
+       use_transformers(action="call", target="AutoProcessor.from_pretrained",
+                        parameters={"pretrained_model_name_or_path": "model_id"},
+                        cache_key="proc")
+       use_transformers(action="call", target="cached:model.generate",
+                        parameters={...})
+
+Discovery (so the agent never guesses):
+       use_transformers(action="tasks")                 # all tasks + modality + models
+       use_transformers(action="modalities")            # tasks grouped by modality
+       use_transformers(action="task_info", task="...") # auto-model, default, io type
+       use_transformers(action="classes")               # all Auto* entrypoints
+       use_transformers(action="inspect", target="...") # signature + docs of anything
+       use_transformers(action="cache")                 # list cached objects
+       use_transformers(action="clear_cache")           # free memory
 """
 
-import os
-import sys
+from __future__ import annotations
+
 import json
-import subprocess
-import importlib
-import inspect
 import logging
-from typing import Dict, Any, List, Optional, Union
-from pathlib import Path
+import subprocess
+import sys
+import traceback
+from typing import Any, Dict, Optional
+
 from strands import tool
 
-# Setup logging
+from strands_transformers.core import engine, io, registry
+
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
-# Global cache for loaded objects (models, tokenizers, etc.)
-# Note: Cache persists within the same Python session
-# Hot reload will reset the cache
-_OBJECT_CACHE = {}
-
-# Known transformers-related modules
-KNOWN_MODULES = [
-    "transformers",
-    "sentence_transformers",
-    "diffusers",
-    "datasets",
-    "tokenizers",
-    "accelerate",
-    "peft",
-]
 
 
-def _ensure_package(package: str) -> tuple[bool, str]:
-    """Ensure package is installed."""
+def _ensure(package: str) -> None:
+    import importlib
     try:
         importlib.import_module(package)
-        return True, "Available"
     except ImportError:
-        logger.info(f"📦 Installing {package}...")
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", package],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if result.returncode == 0:
-            return True, "Installed"
-        return False, f"Failed: {result.stderr}"
+        logger.info("Installing %s ...", package)
+        subprocess.run([sys.executable, "-m", "pip", "install", package],
+                       check=True, timeout=600)
 
 
-def _get_device() -> str:
-    """Auto-detect best available device."""
-    try:
-        import torch
-
-        if torch.cuda.is_available():
-            return "cuda"
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            return "mps"
-    except:
-        pass
-    return "cpu"
+def _ok(text: str, **extra: Any) -> Dict[str, Any]:
+    payload = {"status": "success", "content": [{"text": text}]}
+    payload.update(extra)
+    return payload
 
 
-def _import_target(module_name: str, target: str) -> tuple[Any, str]:
-    """
-    Import and return the target object from module.
-
-    Target can be:
-    - "ClassName" - returns class
-    - "function_name" - returns function
-    - "ClassName.method_name" - returns unbound method (need instance)
-    - "ClassName.class_method" - returns class method
-    - "cached:key" - returns cached object
-    - "cached:key.method" - returns method on cached object
-
-    Returns:
-        (target_object, object_type)
-    """
-    debug_logs = []
-
-    # Handle cached objects
-    if target.startswith("cached:"):
-        cache_ref = target[7:]  # Remove "cached:" prefix
-
-        if "." in cache_ref:
-            # cached:key.method
-            cache_key, method_name = cache_ref.split(".", 1)
-            if cache_key not in _OBJECT_CACHE:
-                raise ValueError(f"No cached object with key: {cache_key}")
-
-            obj = _OBJECT_CACHE[cache_key]
-            debug_logs.append(f"Retrieved cached object: {cache_key}")
-
-            # Navigate nested attributes (e.g., "encode.something")
-            for attr in method_name.split("."):
-                obj = getattr(obj, attr)
-                debug_logs.append(f"  → {attr}")
-
-            return obj, "cached_method", debug_logs
-        else:
-            # cached:key
-            if cache_ref not in _OBJECT_CACHE:
-                raise ValueError(f"No cached object with key: {cache_ref}")
-            return _OBJECT_CACHE[cache_ref], "cached_object", debug_logs
-
-    # Import module
-    try:
-        mod = importlib.import_module(module_name)
-        debug_logs.append(f"Imported module: {module_name}")
-    except ImportError as e:
-        raise ImportError(f"Failed to import {module_name}: {e}")
-
-    # Handle nested target (e.g., "AutoModel.from_pretrained")
-    parts = target.split(".")
-    obj = mod
-
-    for i, part in enumerate(parts):
-        obj = getattr(obj, part)
-        debug_logs.append(f"  → {part}")
-
-        # Determine type at final step
-        if i == len(parts) - 1:
-            if inspect.isclass(obj):
-                return obj, "class", debug_logs
-            elif inspect.isfunction(obj) or inspect.ismethod(obj):
-                return obj, "function", debug_logs
-            elif callable(obj):
-                return obj, "callable", debug_logs
-            else:
-                return obj, "object", debug_logs
-
-    return obj, "unknown", debug_logs
-
-
-def _list_classes(module_name: str) -> List[str]:
-    """List all classes in a module."""
-    mod = importlib.import_module(module_name)
-    return [name for name, obj in inspect.getmembers(mod, inspect.isclass)]
-
-
-def _list_functions(module_name: str) -> List[str]:
-    """List all functions in a module."""
-    mod = importlib.import_module(module_name)
-    return [name for name, obj in inspect.getmembers(mod, inspect.isfunction)]
-
-
-def _list_methods(module_name: str, class_name: str) -> List[str]:
-    """List all methods in a class."""
-    mod = importlib.import_module(module_name)
-    cls = getattr(mod, class_name)
-    return [
-        name
-        for name, obj in inspect.getmembers(cls, inspect.ismethod)
-        if not name.startswith("_")
-    ]
-
-
-def _inspect_signature(module_name: str, target: str) -> Dict[str, Any]:
-    """Get function/method signature and docstring."""
-    obj, obj_type, _ = _import_target(module_name, target)
-
-    try:
-        sig = inspect.signature(obj)
-        params = {}
-        for name, param in sig.parameters.items():
-            params[name] = {
-                "type": (
-                    str(param.annotation)
-                    if param.annotation != inspect.Parameter.empty
-                    else "Any"
-                ),
-                "default": (
-                    str(param.default)
-                    if param.default != inspect.Parameter.empty
-                    else "required"
-                ),
-                "kind": str(param.kind),
-            }
-
-        return {
-            "signature": str(sig),
-            "parameters": params,
-            "docstring": inspect.getdoc(obj) or "No documentation available",
-            "type": obj_type,
-        }
-    except Exception as e:
-        return {
-            "error": str(e),
-            "docstring": inspect.getdoc(obj) or "No documentation available",
-            "type": obj_type,
-        }
+def _err(text: str) -> Dict[str, Any]:
+    return {"status": "error", "content": [{"text": text}]}
 
 
 @tool
 def use_transformers(
-    action: str,
-    module: str = None,
-    target: str = None,
-    parameters: Dict[str, Any] = None,
-    cache_key: str = None,
-    device: str = None,
+    action: str = "tasks",
+    task: Optional[str] = None,
+    model: Optional[str] = None,
+    inputs: Any = None,
+    target: Optional[str] = None,
+    parameters: Optional[Dict[str, Any]] = None,
+    cache_key: Optional[str] = None,
+    device: Optional[str] = None,
+    save_artifacts: bool = True,
+    label: str = "",
 ) -> Dict[str, Any]:
-    """
-    Universal access to ALL transformers library functionality - no hardcoding!
-
-    Like use_aws for boto3, this provides dynamic access to any transformers function/class/method.
+    """Universal access to ALL transformers functionality — no hardcoding.
 
     Args:
-        action: Action to perform
-            - call: Call any function/class/method dynamically
-            - list_modules: Show available transformers modules
-            - list_classes: List classes in a module
-            - list_functions: List functions in a module
-            - list_methods: List methods in a class
-            - inspect: Get signature and docs for function/method
-            - list_cache: Show cached objects
-            - clear_cache: Clear cache or specific key
-
-        module: Module name (e.g., "transformers", "sentence_transformers", "diffusers")
-
-        target: What to call - flexible syntax:
-            - "function_name" - Call module function
-            - "ClassName" - Instantiate class
-            - "ClassName.method" - Call class method
-            - "cached:key" - Get cached object
-            - "cached:key.method" - Call method on cached object
-
-        parameters: Dict of parameters to pass to the function/method/class
-
-        cache_key: Optional key to cache the result (for models, tokenizers, etc.)
-
-        device: Device to use (cpu, cuda, mps) - auto-detected if not specified
+        action: What to do:
+            run          — run a transformers pipeline for `task` on `inputs` (native multimodal)
+            call         — dynamically call any transformers class/function/method via `target`
+            tasks        — list every supported task with modality + auto-model + default model
+            modalities   — list tasks grouped by modality (text/image/audio/video/multimodal)
+            task_info    — details for one `task` (modality, auto-models, default model)
+            classes      — list every Auto* entrypoint (AutoModelForImageTextToText, ...)
+            inspect      — signature + docstring of any `target`
+            cache        — list cached pipelines/models
+            clear_cache  — free a `cache_key` (or everything)
+        task: A transformers task name (e.g. "image-text-to-text", "automatic-speech-recognition").
+        model: HF model id or local path. If omitted, the task's default model is used.
+        inputs: The data to run on — file path / URL / base64 / text / dict / numpy list.
+                For multimodal tasks pass a dict, e.g. {"images": "x.jpg", "text": "..."}.
+        target: For action="call"/"inspect": dotted path into transformers, e.g.
+                "pipeline", "AutoModelForCausalLM.from_pretrained", "cached:key.method".
+        parameters: kwargs for the call / pipeline.
+        cache_key: name to cache (or fetch) a loaded object under.
+        device: "cuda" / "mps" / "cpu" / "auto" (default auto-detect).
+        save_artifacts: write generated audio/images to disk and return paths.
+        label: human-readable description for logging.
 
     Returns:
-        Dict with status and results including debug logs
-
-    Examples:
-        # List available modules
-        use_transformers(action="list_modules")
-
-        # List classes in transformers
-        use_transformers(action="list_classes", module="transformers")
-
-        # Inspect a function
-        use_transformers(action="inspect", module="transformers", target="pipeline")
-
-        # Call pipeline function
-        use_transformers(
-            action="call",
-            module="transformers",
-            target="pipeline",
-            parameters={"task": "text-generation", "model": "gpt2"}
-        )
-
-        # Load and cache a model
-        use_transformers(
-            action="call",
-            module="transformers",
-            target="AutoModelForCausalLM.from_pretrained",
-            parameters={"pretrained_model_name_or_path": "gpt2"},
-            cache_key="my_model"
-        )
-
-        # Call method on cached model
-        use_transformers(
-            action="call",
-            module="transformers",
-            target="cached:my_model.generate",
-            parameters={"input_ids": [[1, 2, 3]], "max_new_tokens": 20}
-        )
+        Dict with status + content; "run"/"call" also include "data" (JSON-safe result)
+        and optionally "artifacts" (paths to generated media).
     """
-
-    debug_logs = []
-
+    params = parameters or {}
     try:
-        # List available modules
-        if action == "list_modules":
-            available = []
-            for mod_name in KNOWN_MODULES:
-                ok, status = _ensure_package(mod_name)
-                available.append(f"{'✅' if ok else '❌'} {mod_name}: {status}")
+        # ───────── discovery ─────────
+        if action == "tasks":
+            tasks = registry.supported_tasks()
+            lines = [f"🤗 transformers supports {len(tasks)} tasks (100% coverage):\n"]
+            for t in sorted(tasks):
+                info = tasks[t]
+                am = ", ".join(info["auto_models"]) or "—"
+                lines.append(f"  • {t}  [{info['type']}]")
+                lines.append(f"      auto: {am}")
+                if info["default_model"]:
+                    lines.append(f"      default: {info['default_model']}")
+            lines.append('\n💡 run:  use_transformers(action="run", task="<task>", inputs=...)')
+            return _ok("\n".join(lines), data=tasks)
 
-            return {
-                "status": "success",
-                "content": [
-                    {
-                        "text": (
-                            "📦 **Available Transformers Modules**\n\n"
-                            + "\n".join(available)
-                            + "\n\n**Usage:** Specify any of these in the 'module' parameter"
-                        )
-                    }
-                ],
-            }
+        if action == "modalities":
+            groups = registry.tasks_by_modality()
+            lines = ["🎛️  Tasks by modality:\n"]
+            for mod in sorted(groups):
+                lines.append(f"  {mod}:")
+                for t in groups[mod]:
+                    lines.append(f"      • {t}")
+            return _ok("\n".join(lines), data=groups)
 
-        # List classes in module
-        elif action == "list_classes":
-            if not module:
-                return {
-                    "status": "error",
-                    "content": [{"text": "❌ Provide 'module' parameter"}],
-                }
+        if action == "task_info":
+            if not task:
+                return _err("Provide `task`.")
+            resolved = registry.resolve_task(task)
+            if not resolved:
+                return _err(f"Unknown task '{task}'. Use action='tasks' to list all.")
+            info = registry.task_info(resolved)
+            return _ok(f"🔍 {resolved}\n{json.dumps(info, indent=2)}",
+                       data={"task": resolved, **info})
 
-            ok, status = _ensure_package(module)
-            if not ok:
-                return {"status": "error", "content": [{"text": f"❌ {status}"}]}
+        if action == "classes":
+            classes = registry.auto_model_classes()
+            return _ok("🏗️  Auto* entrypoints:\n  " + "\n  ".join(classes),
+                       data=classes)
 
-            classes = _list_classes(module)
+        if action == "inspect":
+            if not target:
+                return _err("Provide `target` (e.g. 'pipeline' or 'AutoModelForCausalLM').")
+            obj = _resolve_target(target)
+            info = registry.describe(obj)
+            return _ok(f"🔍 {target}\n{json.dumps(info, indent=2, default=str)}",
+                       data=info)
 
-            return {
-                "status": "success",
-                "content": [
-                    {
-                        "text": (
-                            f"📋 **Classes in {module}** ({len(classes)} total)\n\n"
-                            + "\n".join([f"  • {c}" for c in sorted(classes)[:50]])
-                            + (
-                                f"\n\n... and {len(classes) - 50} more"
-                                if len(classes) > 50
-                                else ""
-                            )
-                        )
-                    }
-                ],
-            }
+        if action == "cache":
+            c = engine.cache_list()
+            if not c:
+                return _ok("📦 cache empty")
+            return _ok("📦 cached:\n" + "\n".join(f"  • {k}: {v}" for k, v in c.items()),
+                       data=c)
 
-        # List functions in module
-        elif action == "list_functions":
-            if not module:
-                return {
-                    "status": "error",
-                    "content": [{"text": "❌ Provide 'module' parameter"}],
-                }
+        if action == "clear_cache":
+            n = engine.cache_clear(cache_key)
+            return _ok(f"🧹 cleared {n} object(s)")
 
-            ok, status = _ensure_package(module)
-            if not ok:
-                return {"status": "error", "content": [{"text": f"❌ {status}"}]}
+        # ───────── run (pipeline) ─────────
+        if action == "run":
+            if not task:
+                return _err("Provide `task`. Use action='tasks' to list options.")
+            resolved = registry.resolve_task(task)
+            if not resolved:
+                return _err(f"Unknown task '{task}'. Use action='tasks' to list all.")
+            _ensure("transformers")
+            # `pipeline_kwargs` configures pipeline construction (e.g. dtype,
+            # device_map); everything else in `parameters` is passed at call time.
+            pipeline_kwargs = params.pop("pipeline_kwargs", {}) if isinstance(params, dict) else {}
+            pipe, key = engine.get_pipeline(resolved, model=model, device=device,
+                                            cache_key=cache_key, **pipeline_kwargs)
+            call_args, call_kwargs = _prepare_run_inputs(inputs, params)
+            if label:
+                logger.info("run %s (%s): %s", resolved, model or "default", label)
+            result = pipe(*call_args, **call_kwargs)
+            out = io.serialize_output(result, task=resolved, save_artifacts=save_artifacts)
+            text = _summarize_run(resolved, out, key)
+            return _ok(text, data=out.get("result"), artifacts=out.get("artifacts", []))
 
-            functions = _list_functions(module)
-
-            return {
-                "status": "success",
-                "content": [
-                    {
-                        "text": (
-                            f"🔧 **Functions in {module}** ({len(functions)} total)\n\n"
-                            + "\n".join([f"  • {f}" for f in sorted(functions)[:50]])
-                            + (
-                                f"\n\n... and {len(functions) - 50} more"
-                                if len(functions) > 50
-                                else ""
-                            )
-                        )
-                    }
-                ],
-            }
-
-        # List methods in class
-        elif action == "list_methods":
-            if not module or not target:
-                return {
-                    "status": "error",
-                    "content": [
-                        {"text": "❌ Provide 'module' and 'target' (class name)"}
-                    ],
-                }
-
-            ok, status = _ensure_package(module)
-            if not ok:
-                return {"status": "error", "content": [{"text": f"❌ {status}"}]}
-
-            methods = _list_methods(module, target)
-
-            return {
-                "status": "success",
-                "content": [
-                    {
-                        "text": (
-                            f"⚙️ **Methods in {module}.{target}** ({len(methods)} total)\n\n"
-                            + "\n".join([f"  • {m}" for m in sorted(methods)[:50]])
-                            + (
-                                f"\n\n... and {len(methods) - 50} more"
-                                if len(methods) > 50
-                                else ""
-                            )
-                        )
-                    }
-                ],
-            }
-
-        # Inspect function/method signature
-        elif action == "inspect":
-            if not module or not target:
-                return {
-                    "status": "error",
-                    "content": [{"text": "❌ Provide 'module' and 'target'"}],
-                }
-
-            ok, status = _ensure_package(module)
-            if not ok:
-                return {"status": "error", "content": [{"text": f"❌ {status}"}]}
-
-            info = _inspect_signature(module, target)
-
-            params_text = "\n".join(
-                [
-                    f"  • **{name}**: {details['type']} (default: {details['default']})"
-                    for name, details in info.get("parameters", {}).items()
-                ]
-            )
-
-            return {
-                "status": "success",
-                "content": [
-                    {
-                        "text": (
-                            f"🔍 **{module}.{target}**\n\n"
-                            f"**Type:** {info.get('type', 'unknown')}\n\n"
-                            f"**Signature:**\n```python\n{info.get('signature', 'N/A')}\n```\n\n"
-                            f"**Parameters:**\n{params_text or 'None'}\n\n"
-                            f"**Documentation:**\n{info.get('docstring', 'No docs available')[:500]}"
-                        )
-                    }
-                ],
-            }
-
-        # List cached objects
-        elif action == "list_cache":
-            if not _OBJECT_CACHE:
-                return {
-                    "status": "success",
-                    "content": [{"text": "📦 **Cache is empty**"}],
-                }
-
-            cache_info = []
-            for key, obj in _OBJECT_CACHE.items():
-                obj_type = type(obj).__name__
-                obj_module = type(obj).__module__
-                cache_info.append(f"  • **{key}**: {obj_module}.{obj_type}")
-
-            return {
-                "status": "success",
-                "content": [
-                    {
-                        "text": (
-                            f"📦 **Cached Objects** ({len(_OBJECT_CACHE)} total)\n\n"
-                            + "\n".join(cache_info)
-                            + "\n\n**Usage:** Use `cached:key` or `cached:key.method` to access"
-                        )
-                    }
-                ],
-            }
-
-        # Clear cache
-        elif action == "clear_cache":
+        # ───────── call (dynamic) ─────────
+        if action == "call":
+            if not target:
+                return _err("Provide `target` (e.g. 'AutoModelForImageTextToText.from_pretrained').")
+            _ensure("transformers")
+            obj = _resolve_target(target)
+            if not callable(obj):
+                return _ok(f"📋 {target} = {str(obj)[:500]}", data=str(obj)[:2000])
+            coerced = {k: io.coerce_input(v) for k, v in params.items()}
+            result = obj(**coerced)
             if cache_key:
-                if cache_key in _OBJECT_CACHE:
-                    del _OBJECT_CACHE[cache_key]
-                    return {
-                        "status": "success",
-                        "content": [{"text": f"✅ Cleared cache key: {cache_key}"}],
-                    }
-                else:
-                    return {
-                        "status": "error",
-                        "content": [{"text": f"❌ No cache key: {cache_key}"}],
-                    }
-            else:
-                count = len(_OBJECT_CACHE)
-                _OBJECT_CACHE.clear()
-                return {
-                    "status": "success",
-                    "content": [{"text": f"✅ Cleared all cache ({count} objects)"}],
-                }
+                engine._CACHE[cache_key] = result  # cache raw object (model/processor)
+                return _ok(f"✅ {target}() → cached as '{cache_key}' "
+                           f"({type(result).__name__})",
+                           data={"cached": cache_key, "type": type(result).__name__})
+            out = io.serialize_output(result, save_artifacts=save_artifacts)
+            return _ok(f"✅ {target}() → {type(result).__name__}",
+                       data=out.get("result"), artifacts=out.get("artifacts", []))
 
-        # Call function/method/class
-        elif action == "call":
-            if not module or not target:
-                return {
-                    "status": "error",
-                    "content": [{"text": "❌ Provide 'module' and 'target'"}],
-                }
+        return _err(f"Unknown action '{action}'. Try: tasks, modalities, task_info, "
+                    f"classes, inspect, run, call, cache, clear_cache.")
 
-            if parameters is None:
-                parameters = {}
-
-            debug_logs.append(f"🎯 Call: {module}.{target}")
-            debug_logs.append(f"📊 Parameters: {list(parameters.keys())}")
-
-            # Ensure module is available
-            ok, status = _ensure_package(module)
-            if not ok:
-                return {"status": "error", "content": [{"text": f"❌ {status}"}]}
-
-            # Import and get target
-            obj, obj_type, import_logs = _import_target(module, target)
-            debug_logs.extend(import_logs)
-            debug_logs.append(f"✅ Target type: {obj_type}")
-
-            # Add device to parameters if needed and not specified
-            if device or (
-                "device" not in parameters and obj_type in ["class", "function"]
-            ):
-                auto_device = device or _get_device()
-                # Only add device if the target accepts it
-                try:
-                    sig = inspect.signature(obj)
-                    if "device" in sig.parameters and "device" not in parameters:
-                        parameters["device"] = auto_device
-                        debug_logs.append(f"🖥️ Auto device: {auto_device}")
-                except:
-                    pass
-
-            # Call the target
-            debug_logs.append("⚙️ Executing...")
-            result = obj(**parameters)
-            debug_logs.append("✅ Execution complete")
-
-            # Cache if requested
-            if cache_key:
-                _OBJECT_CACHE[cache_key] = result
-                debug_logs.append(f"💾 Cached as: {cache_key}")
-
-            # Format result
-            result_type = type(result).__name__
-            result_module = type(result).__module__
-
-            # Try to get useful info about result
-            result_info = f"**Type:** {result_module}.{result_type}\n"
-
-            if hasattr(result, "__len__") and not isinstance(result, str):
-                try:
-                    result_info += f"**Length:** {len(result)}\n"
-                except:
-                    pass
-
-            if hasattr(result, "shape"):
-                result_info += f"**Shape:** {result.shape}\n"
-
-            if isinstance(result, (list, tuple)) and len(result) > 0:
-                result_info += f"**First item type:** {type(result[0]).__name__}\n"
-
-            if isinstance(result, dict):
-                result_info += f"**Keys:** {', '.join(list(result.keys())[:10])}\n"
-
-            # Format result value
-            if isinstance(result, (str, int, float, bool)):
-                result_value = f"```\n{result}\n```"
-            elif isinstance(result, (list, dict)) and len(str(result)) < 500:
-                result_value = (
-                    f"```json\n{json.dumps(result, indent=2, default=str)}\n```"
-                )
-            else:
-                result_value = f"```\n{str(result)[:500]}{'...' if len(str(result)) > 500 else ''}\n```"
-
-            return {
-                "status": "success",
-                "content": [
-                    {
-                        "text": (
-                            f"✅ **Call Result**\n\n"
-                            f"**Debug:**\n```\n" + "\n".join(debug_logs) + "\n```\n\n"
-                            f"{result_info}\n"
-                            f"**Value:**\n{result_value}"
-                        )
-                    }
-                ],
-            }
-
-        else:
-            return {
-                "status": "error",
-                "content": [
-                    {
-                        "text": (
-                            f"❌ Unknown action: {action}\n\n"
-                            f"**Available actions:**\n"
-                            f"  • **call** - Call any function/class/method\n"
-                            f"  • **list_modules** - Show available modules\n"
-                            f"  • **list_classes** - List classes in module\n"
-                            f"  • **list_functions** - List functions in module\n"
-                            f"  • **list_methods** - List methods in class\n"
-                            f"  • **inspect** - Get signature and docs\n"
-                            f"  • **list_cache** - Show cached objects\n"
-                            f"  • **clear_cache** - Clear cache"
-                        )
-                    }
-                ],
-            }
-
+    except TypeError as e:
+        # surface expected signature on bad params
+        hint = ""
+        try:
+            if target:
+                hint = "\n\nExpected:\n" + json.dumps(
+                    registry.describe(_resolve_target(target)), indent=2, default=str)
+        except Exception:
+            pass
+        return _err(f"❌ TypeError: {e}{hint}")
     except Exception as e:
-        import traceback
+        logger.error("use_transformers(%s) failed: %s", action, e, exc_info=True)
+        return _err(f"❌ {type(e).__name__}: {e}\n\n{traceback.format_exc()[-800:]}")
 
-        error_trace = traceback.format_exc()
 
-        return {
-            "status": "error",
-            "content": [
-                {
-                    "text": (
-                        f"❌ **Error: {str(e)}**\n\n"
-                        f"**Debug:**\n```\n" + "\n".join(debug_logs) + "\n```\n\n"
-                        f"**Traceback:**\n```\n{error_trace}\n```"
-                    )
-                }
-            ],
-        }
+def _resolve_target(target: str) -> Any:
+    """Resolve a target which may reference a cached object."""
+    if target.startswith("cached:"):
+        ref = target[len("cached:"):]
+        head, _, tail = ref.partition(".")
+        obj = engine.cache_get(head)
+        if obj is None:
+            raise ValueError(f"No cached object '{head}'. Use action='cache' to list.")
+        for attr in filter(None, tail.split(".")):
+            obj = getattr(obj, attr)
+        return obj
+    return registry.resolve_attr(target)
+
+
+def _prepare_run_inputs(inputs: Any, params: Dict[str, Any]):
+    """Map `inputs` + `parameters` onto a pipeline call.
+
+    Pipelines accept either a positional input (text/path/url/image) or, for
+    multimodal tasks, keyword inputs (images=, text=, audio=, ...). We coerce
+    base64/data-uris and pass everything else through natively.
+    """
+    kwargs = {k: io.coerce_input(v) for k, v in params.items()}
+    if inputs is None:
+        return [], kwargs
+    if isinstance(inputs, dict):
+        # multimodal keyword inputs (images=, text=, audio=, question=, ...)
+        merged = {k: io.coerce_input(v) for k, v in inputs.items()}
+        merged.update(kwargs)
+        return [], merged
+    return [io.coerce_input(inputs)], kwargs
+
+
+def _summarize_run(task: str, out: Dict[str, Any], key: str) -> str:
+    arts = out.get("artifacts", [])
+    head = f"✅ {task} ({key})"
+    if arts:
+        head += "\n📎 artifacts:\n" + "\n".join(f"  • {a}" for a in arts)
+    preview = json.dumps(out.get("result"), indent=2, default=str)
+    if len(preview) > 2000:
+        preview = preview[:2000] + " …"
+    return f"{head}\n{preview}"
 
 
 __all__ = ["use_transformers"]

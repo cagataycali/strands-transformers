@@ -1,7 +1,5 @@
 strands-agents
-strands-agents-tools
-sentencepiece
-trl
-protobuf
-transformers
-jinja2
+transformers>=4.40
+torch
+pillow
+numpy

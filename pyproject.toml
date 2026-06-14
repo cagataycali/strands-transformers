@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "strands-transformers"
-version = "0.1.0"
-description = "Use local HuggingFace models with Strands + automatic training data collection"
+version = "0.2.0"
+description = "The universal entrypoint to HuggingFace transformers for Strands agents — 100% task & modality coverage, zero hardcoding."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -13,17 +13,11 @@ authors = [
     {name = "Cagatay Cali", email = "cagataycali@icloud.com"}
 ]
 keywords = [
-    "strands",
-    "transformers",
-    "huggingface",
-    "ai",
-    "agents",
-    "fine-tuning",
-    "lora",
-    "llm"
+    "strands", "transformers", "huggingface", "ai", "agents",
+    "multimodal", "vision", "audio", "video", "vla", "robotics", "llm"
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -32,41 +26,22 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
 dependencies = [
     "strands-agents",
-    "strands-agents-tools",
-    "transformers",
-    "sentencepiece",
-    "protobuf",
-    "jinja2",
-    "trl",
-    "peft",
-    "accelerate",
-    "bitsandbytes",
+    "transformers>=4.40",
+    "torch",
+    "pillow",
+    "numpy",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-    "pytest-asyncio",
-    "black",
-    "isort",
-    "mypy",
-    "ruff",
-]
-
-training = [
-    "datasets",
-    "evaluate",
-    "tensorboard",
-]
-
-all = [
-    "strands-transformers[dev,training]",
-]
+audio = ["soundfile", "librosa"]
+vision = ["pillow", "opencv-python", "av"]
+training = ["trl", "peft", "accelerate", "datasets"]
+dev = ["pytest>=7.0", "black", "ruff"]
+all = ["strands-transformers[audio,vision,training,dev]"]
 
 [project.urls]
 Homepage = "https://github.com/cagataycali/strands-transformers"
@@ -76,36 +51,11 @@ Issues = "https://github.com/cagataycali/strands-transformers/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["strands_transformers*"]
-exclude = ["tests*", "samples*", "sdk-python*"]
-
-[tool.setuptools.package-data]
-strands_transformers = ["templates/*.j2"]
-
-[tool.black]
-line-length = 100
-target-version = ['py310', 'py311', 'py312', 'py313']
-include = '\.pyi?$'
-
-[tool.isort]
-profile = "black"
-line_length = 100
 
 [tool.ruff]
 line-length = 100
 target-version = "py310"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W"]
+select = ["E", "F", "I", "W"]
 ignore = ["E501"]
-
-[tool.mypy]
-python_version = "3.10"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = false
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]

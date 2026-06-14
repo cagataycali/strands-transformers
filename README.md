@@ -1,208 +1,147 @@
 <div align="center">
+  <h1>🤗 Strands Transformers</h1>
+  <h3>The universal entrypoint to HuggingFace transformers for Strands agents.</h3>
+  <p><b>100% task & modality coverage. Zero hardcoding.</b></p>
 
-  <h1>
-    Strands Transformers
-  </h1>
-
-  <h2>
-    Use local HuggingFace models with Strands + automatic training data collection
-  </h2>
-
-  <div align="center">
-    <a href="https://github.com/cagataycali/strands-transformers/issues"><img alt="GitHub open issues" src="https://img.shields.io/github/issues/cagataycali/strands-transformers"/></a>
-    <a href="https://github.com/cagataycali/strands-transformers/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/cagataycali/strands-transformers"/></a>
-    <a href="https://python.org"><img alt="Python versions" src="https://img.shields.io/badge/python-3.10+-blue"/></a>
+  <div>
+    <a href="https://github.com/cagataycali/strands-transformers/issues"><img alt="issues" src="https://img.shields.io/github/issues/cagataycali/strands-transformers"/></a>
+    <a href="https://python.org"><img alt="python" src="https://img.shields.io/badge/python-3.10+-blue"/></a>
   </div>
 </div>
 
-Strands Transformers lets you use any HuggingFace model as a Strands model provider and automatically collect training data from your conversations. Train domain-specific agents that understand your tools and workflows using LoRA fine-tuning.
+---
 
-## Feature Overview
+`use_aws` wraps **all of boto3**. `use_lerobot` wraps **all of lerobot**.
+**`use_transformers` wraps all of HuggingFace transformers** — every task, every
+modality, in one tool. It reads transformers' own task taxonomy at runtime, so
+the day HuggingFace ships a new task or model, you support it with **no code change**.
 
-- **TransformerModel Provider**: Use any HuggingFace model (Qwen, Llama, Mistral, etc.)
-- **Automatic Training Collection**: JsonlSessionManager captures conversations with tool calls
-- **LoRA Fine-Tuning**: Efficient training with TRL SFTTrainer (297MB vs 6.4GB)
-- **Template System**: Built-in support for Qwen3, Llama 3.1/3.2, GPT-OSS chat formats
-- **Thinking Mode**: Qwen3 internal reasoning with `<think>` tags
-- **Tool Calling**: Automatic XML-based tool calling and response formatting
+```
+   image · video · audio · text · robot-state   ─▶  use_transformers  ─▶   text · audio · image · labels · actions
+```
+
+## Install
+
+```bash
+pip install -e .
+# optional extras:
+pip install -e ".[audio]"     # soundfile, librosa
+pip install -e ".[vision]"    # opencv, av (video)
+pip install -e ".[training]"  # trl, peft, accelerate
+```
 
 ## Quick Start
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
+```python
+from strands import Agent
+from strands_transformers import use_transformers
 
-# Or install as package
-pip install -e .
+agent = Agent(tools=[use_transformers])
+
+agent("Transcribe recording.wav")              # automatic-speech-recognition
+agent("What's in scene.jpg?")                  # image-text-to-text
+agent("Say 'hello from strands' as audio")     # text-to-audio
+agent("Detect objects in https://.../street.jpg")  # object-detection
 ```
+
+The agent discovers the right task, loads the model, runs it, and hands back
+text plus paths to any generated media — all natively.
+
+## The one tool: `use_transformers`
+
+### Discover (never guess)
+
+```python
+use_transformers(action="tasks")                  # 24 tasks + modality + auto-model + default
+use_transformers(action="modalities")             # tasks grouped: text/image/audio/video/multimodal
+use_transformers(action="task_info", task="image-text-to-text")
+use_transformers(action="classes")                # all Auto* entrypoints (AutoModelForImageTextToText, ...)
+use_transformers(action="inspect", target="pipeline")   # signature + docs of anything
+```
+
+### Run — high level (native multimodal pipelines)
+
+Inputs accept **file paths, URLs, base64 data-URIs, raw text, dicts, or arrays**.
+
+```python
+# ASR
+use_transformers(action="run", task="automatic-speech-recognition", inputs="clip.wav")
+
+# Vision-language (e.g. MolmoAct, LLaVA, Qwen-VL)
+use_transformers(action="run", task="image-text-to-text",
+                 model="allenai/MolmoAct2-SO100_101",
+                 inputs={"images": "scene.jpg", "text": "pick up the red cube"})
+
+# Text-to-speech → saved as .wav, path returned in `artifacts`
+use_transformers(action="run", task="text-to-audio",
+                 model="suno/bark-small", inputs="Hello!")
+
+# Object detection from a URL
+use_transformers(action="run", task="object-detection",
+                 inputs="https://images.cocodataset.org/val2017/000000039769.jpg")
+```
+
+### Call — low level (any class / function / method)
+
+For VLA / robot-action models, or anything pipelines don't cover. Load components
+dynamically and cache them across calls:
+
+```python
+# load processor + model once, cache them
+use_transformers(action="call", target="AutoProcessor.from_pretrained",
+                 parameters={"pretrained_model_name_or_path": "model_id"}, cache_key="proc")
+use_transformers(action="call", target="AutoModelForImageTextToText.from_pretrained",
+                 parameters={"pretrained_model_name_or_path": "model_id"}, cache_key="vla")
+
+# preprocess → generate actions/tokens using the cached objects
+use_transformers(action="call", target="cached:proc",
+                 parameters={"images": "scene.jpg", "text": "grasp", "return_tensors": "pt"},
+                 cache_key="batch")
+use_transformers(action="call", target="cached:vla.generate", parameters={...})
+```
+
+## How "100% coverage" works
+
+The source of truth is transformers' own `SUPPORTED_TASKS` registry. We read it at
+runtime in [`core/registry.py`](strands_transformers/core/registry.py):
+
+| Layer | File | Responsibility |
+|-------|------|----------------|
+| **Registry** | `core/registry.py` | Reads transformers' task taxonomy → modality → AutoModel. Dynamic resolution of any class/fn. |
+| **Engine** | `core/engine.py` | Loads & caches pipelines/models. Auto device (cuda/mps/cpu) + dtype. |
+| **I/O** | `core/io.py` | Coerces multimodal inputs; serializes outputs; saves audio/images to disk. |
+| **Tool** | `tools/use_transformers.py` | The single `@tool` agents call. Discovery + run + call. |
+
+Nothing is hardcoded per-task. New transformers task ⇒ instantly available.
+
+## Local model as the agent's brain
+
+Use any HuggingFace causal-LM as the Strands model provider:
 
 ```python
 from strands import Agent
-from strands_transformers import TransformerModel, JsonlSessionManager
-from strands_tools import shell, calculator
+from strands_transformers import TransformerModel, use_transformers
 
-# 1. Load local model
-model = TransformerModel(
-    model_path="Qwen/Qwen3-1.7B",
-    device="auto"
-)
-
-# 2. Enable auto-training collection (optional)
-session = JsonlSessionManager(
-    session_id="my_agent",
-    template_name="qwen3"
-)
-
-# 3. Create agent
-agent = Agent(
-    model=model,
-    tools=[shell, calculator],
-    session_manager=session  # Conversations → training data
-)
-
-# 4. Use agent (data collected automatically!)
-agent("What tools do you have?")
-agent("Calculate 25 * 17")
+brain = TransformerModel(model_path="Qwen/Qwen3-1.7B", device="auto", enable_thinking=True)
+agent = Agent(model=brain, tools=[use_transformers])
 ```
 
-> **Note**: This project is experimental. We're actively training models to understand Strands - best results so far with 50+ examples and 70+ training steps.
+Streaming, tool-calling, and Qwen3 `<think>` reasoning are supported — see
+[`models/transformers.py`](strands_transformers/models/transformers.py).
 
-## Installation
+## Supported modalities
 
-```bash
-git clone git@github.com:cagataycali/strands-transformers.git
-cd strands-transformers
+| Modality | Example tasks |
+|----------|---------------|
+| **text** | text-generation, fill-mask, token/text-classification, feature-extraction, table-qa |
+| **image** | image-classification, depth-estimation, image-feature-extraction, keypoint-matching |
+| **audio** | automatic-speech-recognition, audio-classification, text-to-audio |
+| **video** | video-classification |
+| **multimodal** | image-text-to-text, visual/document-qa, object-detection, segmentation, zero-shot-*, any-to-any |
 
-# Create virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-## Core Components
-
-### TransformerModel - HuggingFace as Strands Provider
-
-```python
-from strands_transformers import TransformerModel
-
-model = TransformerModel(
-    model_path="Qwen/Qwen3-1.7B",  # Or local path
-    device="auto",                  # cuda/mps/cpu
-    enable_thinking=True,           # Qwen3 thinking mode
-    params={
-        "max_tokens": 500,
-        "temperature": 0.7
-    }
-)
-```
-
-**Features:**
-- ✅ Streaming responses
-- ✅ Tool calling with XML tags
-- ✅ Qwen3 thinking mode (`<think>` tags)
-- ✅ Chat template auto-detection
-- ✅ Merged LoRA weights support
-
-### JsonlSessionManager - Automatic Training Data
-
-```python
-from strands_transformers import JsonlSessionManager
-
-session = JsonlSessionManager(
-    session_id="production",
-    template_name="qwen3",           # qwen3, llama3.1, llama3.2, gpt-oss
-    storage_dir="./training_data"
-)
-
-agent = Agent(model=model, tools=[...], session_manager=session)
-
-# Every conversation automatically saved to JSONL!
-```
-
-**Captures:**
-- System prompts with tool definitions
-- User messages
-- Tool calls (`<tool_call>` tags)
-- Tool responses (`<tool_response>` tags)
-- Complete conversation context
-
-### Training Pipeline
-
-```python
-from strands_transformers import model_trainer
-
-# Train with LoRA
-model_trainer(
-    action="train",
-    model_name="Qwen/Qwen3-1.7B",
-    dataset="./training_data/production.jsonl",
-    output_dir="./trained",
-    use_lora=True,
-    max_steps=150
-)
-
-# Merge weights
-model_trainer(
-    action="load_for_inference",
-    model_name="./trained",
-    output_dir="./merged"
-)
-
-# Use fine-tuned model
-fine_tuned = TransformerModel(model_path="./merged", device="auto")
-agent = Agent(model=fine_tuned, tools=[...])
-```
-
-## Available Templates
-
-| Template | Model Type | Features |
-|----------|------------|----------|
-| `qwen3.j2` | Qwen3 | Thinking mode, tool calling |
-| `llama3.1.j2` | Llama 3.1 (8B+) | Tool calling, ipython format |
-| `llama3.2.j2` | Llama 3.2 (3B) | Optimized for smaller models |
-| `gpt-oss.j2` | GPT-OSS | Multi-channel reasoning |
-
-## Example: Training Flow
-
-```python
-# Phase 1: Collect data
-session = JsonlSessionManager(session_id="my_app", template_name="qwen3")
-agent = Agent(model=model, tools=[...], session_manager=session)
-# ... use agent in production ...
-
-# Phase 2: Train
-model_trainer(action="train", dataset="~/.strands/training_data/my_app.jsonl", ...)
-
-# Phase 3: Deploy
-trained_model = TransformerModel(model_path="./merged", device="auto")
-agent = Agent(model=trained_model, tools=[...], session_manager=session)  # Continue learning!
-```
-
-## Documentation
-
-- **Installation**: Clone repo and `pip install -r requirements.txt`
-- **TransformerModel**: See `strands_transformers/models/transformers.py`
-- **JsonlSessionManager**: See `strands_transformers/session/jsonl_session_manager.py`
-- **Training Tools**: See `strands_transformers/tools/`
-- **Templates**: See `strands_transformers/templates/`
-
-## Contributing
-
-We welcome contributions! 
-
-1. Fork the repository
-2. Create feature branch: `git checkout -b feature/my-feature`
-3. Make changes and test
-4. Commit: `git commit -m "feat: add feature"`
-5. Push and open Pull Request
+Run `use_transformers(action="tasks")` for the live, complete list on your install.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details
-
----
-
-**Built with** [Strands Agents SDK](https://github.com/strands-agents/sdk-python) • [HuggingFace Transformers](https://huggingface.co/transformers) • [PEFT](https://github.com/huggingface/peft)
+MIT — built with [Strands Agents SDK](https://github.com/strands-agents/sdk-python)
+and [HuggingFace Transformers](https://github.com/huggingface/transformers).

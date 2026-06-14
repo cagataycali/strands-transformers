@@ -1,38 +1,42 @@
-"""Strands Transformers - Local HuggingFace models + fine-tuning infrastructure."""
+"""Strands Transformers — the universal entrypoint to HuggingFace transformers.
 
-__version__ = "0.1.0"
+100% transformers coverage with zero hardcoding: every task across every modality
+(text, image, video, audio, robot-state) in and out, the same way `use_aws` wraps
+boto3 and `use_lerobot` wraps lerobot.
 
-from strands_transformers.models.transformers import TransformerModel
-from strands_transformers.session.jsonl_session_manager import JsonlSessionManager
+Quick start:
+    from strands import Agent
+    from strands_transformers import use_transformers
+
+    agent = Agent(tools=[use_transformers])
+    agent("Transcribe recording.wav")            # ASR
+    agent("Describe scene.jpg and plan a grasp") # image-text-to-text / VLA
+    agent("Say 'hello' as audio")                # text-to-audio
+
+    # Or use a local HF model as the agent's brain:
+    from strands_transformers import TransformerModel
+    model = TransformerModel(model_path="Qwen/Qwen3-1.7B")
+    agent = Agent(model=model, tools=[use_transformers])
+"""
+
+__version__ = "0.2.0"
+
+from strands_transformers.core import engine, io, registry
+from strands_transformers.tools.use_transformers import use_transformers
 
 
-# Lazy imports for tools (require optional dependencies)
 def __getattr__(name):
-    """Lazy load tools to avoid import errors if dependencies not installed."""
-    if name == "dataset_generator":
-        from strands_transformers.tools.dataset_generator import dataset_generator
-
-        return dataset_generator
-    elif name == "model_trainer":
-        from strands_transformers.tools.model_trainer import model_trainer
-
-        return model_trainer
-    elif name == "template":
-        from strands_transformers.tools.template import template
-
-        return template
-    elif name == "use_transformers":
-        from strands_transformers.tools.use_transformers import use_transformers
-
-        return use_transformers
+    # Lazy import the model provider (pulls in torch) only when requested.
+    if name == "TransformerModel":
+        from strands_transformers.models.transformers import TransformerModel
+        return TransformerModel
     raise AttributeError(f"module 'strands_transformers' has no attribute '{name}'")
 
 
 __all__ = [
-    "TransformerModel",
-    "JsonlSessionManager",
-    "dataset_generator",
-    "model_trainer",
-    "template",
     "use_transformers",
+    "TransformerModel",
+    "registry",
+    "engine",
+    "io",
 ]
