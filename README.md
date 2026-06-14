@@ -1,7 +1,7 @@
 <div align="center">
   <h1>🤗 Strands Transformers</h1>
-  <h3>The universal entrypoint to HuggingFace transformers for Strands agents.</h3>
-  <p><b>100% task & modality coverage. Zero hardcoding. Agents that see, hear, and speak — fully local.</b></p>
+  <h3>One tool wraps <i>all</i> of HuggingFace transformers. One provider makes any local model a multimodal agent brain.</h3>
+  <p><b>Agents that see, hear, and speak — 100% task coverage, zero hardcoding, fully local.</b></p>
 
   <div>
     <a href="https://github.com/cagataycali/strands-transformers/issues"><img alt="issues" src="https://img.shields.io/github/issues/cagataycali/strands-transformers"/></a>
