@@ -140,6 +140,63 @@ def _bytes_to_pil(data: Any) -> Optional[Any]:
     return None
 
 
+def _normalize_video(payload: Any) -> Optional[Any]:
+    """Normalize a video payload into a (T, H, W, C) uint8 numpy array.
+
+    Accepts: a list of frames (PIL/np), a 4D numpy array, or raw container
+    bytes. Returns None if it cannot be decoded.
+    """
+    try:
+        import numpy as np
+    except Exception:
+        return None
+
+    # Already a 4D array (T, H, W, C)
+    if isinstance(payload, np.ndarray):
+        return payload if payload.ndim == 4 else None
+
+    # A list/tuple of frames (PIL images or arrays)
+    if isinstance(payload, (list, tuple)) and payload:
+        frames = []
+        for fr in payload:
+            pil = _bytes_to_pil(fr)
+            if pil is None:
+                if isinstance(fr, np.ndarray):
+                    frames.append(fr)
+                continue
+            frames.append(np.asarray(pil))
+        if frames:
+            try:
+                return np.stack(frames, axis=0)
+            except Exception:
+                return None
+        return None
+
+    # Raw container bytes -> sample frames via torchvision/decord if available
+    if isinstance(payload, (bytes, bytearray)):
+        try:
+            import io as _io
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
+                tf.write(bytes(payload))
+                path = tf.name
+            try:
+                from torchvision import io as tvio
+
+                vframes, _, _ = tvio.read_video(path, pts_unit="sec")
+                # (T, H, W, C) uint8
+                return vframes.numpy()
+            except Exception as e:
+                logger.warning("could not decode video bytes: %s", e)
+                return None
+        except Exception as e:
+            logger.warning("video temp write failed: %s", e)
+            return None
+
+    return None
+
+
 def _document_to_text(doc: Dict[str, Any]) -> str:
     """Flatten a Strands DocumentContent block into plain text for the prompt."""
     name = doc.get("name", "document")
@@ -447,8 +504,12 @@ class TransformerModel(Model):
             vid = content["video"]
             src = vid.get("source", vid) if isinstance(vid, dict) else vid
             payload = src.get("bytes", src) if isinstance(src, dict) else src
-            videos.append(payload)
-            parts.append({"type": "video"})
+            norm = _normalize_video(payload)
+            if norm is not None:
+                videos.append(norm)
+                parts.append({"type": "video"})
+            else:
+                parts.append({"type": "text", "text": "[unrenderable video]"})
             return parts, images, videos
 
         # document -> flatten to text
@@ -488,8 +549,11 @@ class TransformerModel(Model):
                 elif "video" in c:
                     vid = c["video"]
                     src = vid.get("source", vid) if isinstance(vid, dict) else vid
-                    parts.append({"type": "video"})
-                    videos.append(src.get("bytes", src) if isinstance(src, dict) else src)
+                    vpayload = src.get("bytes", src) if isinstance(src, dict) else src
+                    vnorm = _normalize_video(vpayload)
+                    if vnorm is not None:
+                        videos.append(vnorm)
+                        parts.append({"type": "video"})
             if not parts:
                 parts.append({"type": "text", "text": "[empty tool result]"})
             return parts, images, videos
@@ -573,7 +637,9 @@ class TransformerModel(Model):
         if images:
             proc_kwargs["images"] = images
         if videos:
-            proc_kwargs["videos"] = videos
+            # Processors expect videos nested per batch sample:
+            # [sample][video] where each video is a (T, H, W, C) array.
+            proc_kwargs["videos"] = [videos]
 
         inputs = self.processor(**proc_kwargs)
         inputs = dict(inputs)  # BatchFeature -> plain dict
