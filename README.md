@@ -253,6 +253,10 @@ back the words it was asked to say.
 | `audio` *(our extension)* | feature extractor | `audio_content_block.py` | audio→text |
 | `audio` in/out | Qwen2.5-Omni Thinker+Talker | `omni_audio.py` | hears + **speaks** |
 
+<sub>Outputs above are real model results, captured on NVIDIA (CUDA) with
+transformers 5.12 / torch 2.10. Reproduce them with the examples in
+[`examples/`](examples/).</sub>
+
 Streaming, tool-calling, and Qwen3 `<think>` reasoning are all supported — see
 [`models/transformers.py`](strands_transformers/models/transformers.py).
 
