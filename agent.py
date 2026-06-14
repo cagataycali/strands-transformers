@@ -26,10 +26,30 @@ Workflow:
    (AutoProcessor / AutoModelForImageTextToText) and cache them with cache_key.
 Generated audio/images are saved to disk; report their paths to the user."""
 
-agent = Agent(
-    tools=[use_transformers],
-    system_prompt=SYSTEM_PROMPT,
-)
+def build_agent():
+    """Build the multimodal agent.
+
+    Brain selection:
+    - Set STRANDS_TRANSFORMERS_LOCAL=1 (or have no cloud creds) to run a LOCAL
+      HuggingFace model as the brain via TransformerModel — fully offline.
+    - Otherwise Strands' default provider (Bedrock/OpenAI/… by env) is used.
+    """
+    import os
+
+    if os.getenv("STRANDS_TRANSFORMERS_LOCAL", "").lower() in ("1", "true", "yes"):
+        from strands_transformers import TransformerModel
+
+        brain = TransformerModel(
+            model_path=os.getenv("STRANDS_TRANSFORMERS_MODEL", "Qwen/Qwen3-0.6B"),
+            device="auto",
+            params={"max_tokens": 256, "temperature": 0.7},
+        )
+        return Agent(model=brain, tools=[use_transformers], system_prompt=SYSTEM_PROMPT)
+
+    return Agent(tools=[use_transformers], system_prompt=SYSTEM_PROMPT)
+
+
+agent = build_agent()
 
 if __name__ == "__main__":
     print("🤗 Multimodal transformers agent. Ctrl-C to exit.\n")
