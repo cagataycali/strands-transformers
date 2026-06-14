@@ -354,11 +354,45 @@ def _prepare_run_inputs(inputs: Any, params: Dict[str, Any], task: str = ""):
         # An explicit raw-audio dict is a positional input, not kwargs.
         if "raw" in inputs and "sampling_rate" in inputs:
             return [{k: io.coerce_input(v) for k, v in inputs.items()}], kwargs
-        # otherwise: multimodal keyword inputs (images=, text=, audio=, ...)
         merged = {k: io.coerce_input(v) for k, v in inputs.items()}
+        # image-text-to-text chat models require images INSIDE the chat content,
+        # not as a separate `images` arg. If the caller passed both chat `text`
+        # and a separate `images`, fold the image(s) into the first user message
+        # so the agent doesn't need to know the exact chat schema.
+        if task == "image-text-to-text":
+            merged = _embed_images_in_chat(merged)
         merged.update(kwargs)
         return [], merged
     return [io.coerce_input(inputs)], kwargs
+
+
+def _embed_images_in_chat(merged: Dict[str, Any]) -> Dict[str, Any]:
+    """Fold a separate `images` value into chat `text` message content.
+
+    Turns {"text": [chat...], "images": img} into a valid image-text-to-text
+    call where each image is a content block in the first user message. No-op if
+    there's no separate images arg or text isn't a chat list.
+    """
+    text = merged.get("text")
+    images = merged.get("images")
+    if images is None or not isinstance(text, list):
+        return merged
+
+    imgs = images if isinstance(images, list) else [images]
+    image_blocks = [{"type": "image", "image": im} for im in imgs]
+
+    for msg in text:
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            content = msg.get("content")
+            if isinstance(content, list):
+                # prepend images if none already present
+                if not any(isinstance(b, dict) and b.get("type") == "image" for b in content):
+                    msg["content"] = image_blocks + content
+            elif isinstance(content, str):
+                msg["content"] = image_blocks + [{"type": "text", "text": content}]
+            break
+    merged.pop("images", None)
+    return merged
 
 
 def _summarize_run(task: str, out: Dict[str, Any], key: str) -> str:
