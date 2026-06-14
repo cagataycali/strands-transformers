@@ -33,15 +33,14 @@ And `TransformerModel` lets a **local** HF model *be the agent's brain* — now
 genuinely multimodal: pass image, video, audio, and document content blocks and
 the model actually consumes them. With Qwen2.5-Omni it even **speaks back**.
 
+**Two ways to use it:**
+
 ```
-  ┌────────────────── two ways to use transformers ──────────────────┐
-  │                                                                   │
-  │  use_transformers  (tool)   image·video·audio·text·robot-state    │
-  │                              ─▶ text·audio·image·labels·actions   │
-  │                                                                   │
-  │  TransformerModel  (brain)  Agent(model=…) consumes image/video/  │
-  │                              audio/document blocks → text + speech │
-  └───────────────────────────────────────────────────────────────────┘
+  use_transformers  (tool)    image · video · audio · text · robot-state
+                          ──▶  text · audio · image · labels · actions
+
+  TransformerModel  (brain)   Agent(model=…) consumes image/video/audio/
+                          ──▶  document blocks  →  text · reasoning · speech
 ```
 
 ## Why
