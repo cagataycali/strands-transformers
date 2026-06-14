@@ -85,6 +85,12 @@ pip install -e ".[vision]"    # pillow, opencv, av  (video)
 pip install -e ".[training]"  # trl, peft, accelerate
 ```
 
+**Verify your install** (fast, no big downloads — 12 real checks):
+
+```bash
+PYTHONPATH=. python examples/smoke.py     # → "12/12 checks passed"
+```
+
 ## Quick Start — the tool
 
 ```python
