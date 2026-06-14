@@ -114,6 +114,8 @@ def use_transformers(
             inspect      — signature + docstring of any `target`
             cache        — list cached pipelines/models
             clear_cache  — free a `cache_key` (or everything)
+            compat       — apply legacy-model shims (for old trust_remote_code models like
+                           OpenVLA); optional parameters={"timm_version": "0.9.16"}
         task: A transformers task name (e.g. "image-text-to-text", "automatic-speech-recognition").
         model: HF model id or local path. If omitted, the task's default model is used.
         inputs: The data to run on — file path / URL / base64 / text / dict / numpy list.
@@ -188,6 +190,29 @@ def use_transformers(
         if action == "clear_cache":
             n = engine.cache_clear(cache_key)
             return _ok(f"🧹 cleared {n} object(s)")
+
+        if action == "compat":
+            # Apply backward-compat shims for legacy trust_remote_code models
+            # (e.g. OpenVLA): tokenizer symbol moves, AutoModelForVision2Seq
+            # alias, tie_weights kwarg tolerance. Optionally spoof a timm version
+            # for models with hard timm pins (pass parameters={"timm_version": "0.9.16"}).
+            from strands_transformers.core import compat
+            compat.apply(force=True)
+            timm_version = (params or {}).get("timm_version")
+            note = ""
+            if timm_version:
+                # Set persistently (not via the restoring context manager) so the
+                # spoof stays in effect for subsequent load calls in this session.
+                try:
+                    import timm
+                    timm.__version__ = timm_version
+                    note = f" + spoofed timm.__version__={timm_version}"
+                except ImportError:
+                    note = " (timm not installed; spoof skipped)"
+            return _ok(
+                "🩹 compat shims applied (tokenization_utils symbols, "
+                f"AutoModelForVision2Seq alias, tie_weights tolerance){note}"
+            )
 
         # ───────── run (pipeline) ─────────
         if action == "run":
