@@ -300,7 +300,7 @@ $ use_transformers(action="tasks")
   • automatic-speech-recognition    [multimodal]  auto: AutoModelForCTC, …SpeechSeq2Seq
   • image-text-to-text              [multimodal]  auto: AutoModelForImageTextToText
   • object-detection                [multimodal]  auto: AutoModelForObjectDetection
-  • text-to-audio                   [audio]       auto: AutoModelForTextToWaveform
+  • text-to-audio                   [text]        auto: AutoModelForTextToWaveform
   … 19 more — the list is read from transformers at runtime, so it's never stale.
 ```
 
