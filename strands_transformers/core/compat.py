@@ -37,6 +37,7 @@ def apply(force: bool = False) -> None:
     _patch_tokenization_utils()
     _patch_vision2seq()
     _patch_tie_weights()
+    _patch_broken_torchcodec()
     _APPLIED = True
 
 
@@ -181,6 +182,43 @@ def _patch_tie_weights() -> None:
 
     PreTrainedModel.init_weights = init_weights
     PreTrainedModel._st_tie_weights_wrapped = True
+
+def _patch_broken_torchcodec() -> None:
+    """Disable torchcodec detection when the installed torchcodec is broken.
+
+    transformers' audio pipelines call `is_torchcodec_available()` and then do an
+    unconditional `import torchcodec`. If torchcodec is installed but its native
+    lib fails to load (common ffmpeg ABI mismatch), this crashes even for already
+    decoded array/dict inputs. We probe the actual import once; if it fails, we
+    override the availability checks to return False so pipelines fall back to the
+    ffmpeg/array path.
+    """
+    try:
+        import torchcodec  # noqa: F401
+        return  # torchcodec works — nothing to do
+    except Exception:
+        pass
+
+    def _false() -> bool:
+        return False
+
+    patched = 0
+    for modname in (
+        "transformers.utils",
+        "transformers.utils.import_utils",
+        "transformers.pipelines.automatic_speech_recognition",
+        "transformers.pipelines.audio_classification",
+    ):
+        try:
+            import importlib
+            mod = importlib.import_module(modname)
+            if hasattr(mod, "is_torchcodec_available"):
+                mod.is_torchcodec_available = _false
+                patched += 1
+        except Exception:
+            continue
+    if patched:
+        logger.debug("Disabled broken torchcodec in %d module(s)", patched)
 
 def spoof_timm_version(version: str = "0.9.16"):
     """Temporarily spoof `timm.__version__` for models with hard version pins.
