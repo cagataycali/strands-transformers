@@ -143,10 +143,16 @@ All outputs below are **real** results (CUDA, transformers 5.12 / torch 2.10):
 <details>
 <summary><b>Robotics / VLA</b> — camera + instruction → robot actions</summary>
 
-VLA models expose a custom `predict_action`, driven through the `call` layer.
-Verified: [MolmoAct2](https://huggingface.co/allenai/MolmoAct2-SO100_101) → actions
-`[1,30,6]`; [OpenVLA-7b](https://huggingface.co/openvla/openvla-7b) → 7-DoF vector
-(with automatic 4.x→5.x compat shims).
+Two layers, both transformers-native and GPU-verified:
+- 🧠 **reason** — [Cosmos-Reason2-2B](https://huggingface.co/nvidia/Cosmos-Reason2-2B)
+  (a physical-AI VLM) plans over a scene via the `run` path: *"the red cube is in
+  the bottom left corner, so the arm should move there first."*
+- ⚙️ **act** — VLA models expose `predict_action` via the `call` path:
+  [MolmoAct2](https://huggingface.co/allenai/MolmoAct2-SO100_101) → `[1,30,6]`;
+  [OpenVLA-7b](https://huggingface.co/openvla/openvla-7b) → 7-DoF (auto 4.x→5.x shims).
+
+Lerobot-ecosystem policies (SmolVLA, π0, ACT, GR00T) use their own runtimes —
+pair with `use_lerobot`.
 → **[Robotics guide](https://cagataycali.github.io/strands-transformers/guide/robotics/)**
 </details>
 
