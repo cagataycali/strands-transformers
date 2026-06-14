@@ -6,3 +6,4 @@ __pycache__
 qwen3_*
 sessions
 *.egg-info
+system_prompt.prompt

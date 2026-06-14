@@ -104,12 +104,27 @@ def resolve_attr(dotted: str, root_module: str = "transformers") -> Any:
     except ImportError:
         pass
 
-    # Progressive: import deepest importable module, then getattr the rest
+    # Fast path: attribute(s) directly on the root module. This is tried first
+    # because frameworks like transformers use a lazy `__getattr__` that raises
+    # AttributeError (not ImportError) when you attempt to import a non-module
+    # attribute as a submodule — which would otherwise escape the loop below.
+    try:
+        root = importlib.import_module(root_module)
+        obj = root
+        for attr in dotted.split("."):
+            obj = getattr(obj, attr)
+        return obj
+    except AttributeError:
+        pass
+
+    # Progressive: import deepest importable module, then getattr the rest.
+    # Catch Exception (not just ImportError) so lazy-module AttributeErrors
+    # during a submodule import attempt don't abort resolution.
     segments = full.split(".")
     for i in range(len(segments), 0, -1):
         try:
             mod = importlib.import_module(".".join(segments[:i]))
-        except ImportError:
+        except Exception:
             continue
         obj = mod
         try:
@@ -119,7 +134,7 @@ def resolve_attr(dotted: str, root_module: str = "transformers") -> Any:
         except AttributeError:
             break
 
-    # Fallback: attribute on the root module
+    # Final fallback (raises a clear AttributeError if truly missing)
     root = importlib.import_module(root_module)
     obj = root
     for attr in dotted.split("."):

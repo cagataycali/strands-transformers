@@ -51,6 +51,8 @@ def get_pipeline(task: str, model: Optional[str] = None,
     pipeline() natively accepts paths/URLs/PIL/arrays as input and handles
     tokenization, image processing, feature extraction, etc. automatically.
     """
+    from . import compat
+    compat.apply()
     from transformers import pipeline
 
     key = cache_key or f"pipe::{task}::{model or 'default'}"
@@ -87,8 +89,9 @@ def load_object(auto_class: str, model_path: str,
     For lower-level control than pipelines — e.g. VLA / robot-action models where
     you feed processor(images, text, state) and call model.generate / model(**).
     """
-    from . import registry
+    from . import compat, registry
 
+    compat.apply(force=True)
     key = cache_key or f"obj::{auto_class}::{model_path}"
     if key in _CACHE:
         return _CACHE[key], key

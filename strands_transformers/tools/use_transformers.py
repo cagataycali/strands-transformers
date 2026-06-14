@@ -59,6 +59,15 @@ from strands_transformers.core import engine, io, registry
 logger = logging.getLogger(__name__)
 
 
+def _apply_compat() -> None:
+    """Apply backward-compat shims for legacy trust_remote_code models."""
+    try:
+        from strands_transformers.core import compat
+        compat.apply()
+    except Exception as e:  # pragma: no cover
+        logger.debug("compat.apply skipped: %s", e)
+
+
 def _ensure(package: str) -> None:
     import importlib
     try:
@@ -206,10 +215,20 @@ def use_transformers(
             if not target:
                 return _err("Provide `target` (e.g. 'AutoModelForImageTextToText.from_pretrained').")
             _ensure("transformers")
+            _apply_compat()
             obj = _resolve_target(target)
             if not callable(obj):
                 return _ok(f"📋 {target} = {str(obj)[:500]}", data=str(obj)[:2000])
             coerced = {k: _coerce_param(v) for k, v in params.items()}
+            # Support unpacking a cached mapping into kwargs via the "**" key,
+            # e.g. {"**": "cached:batch"} → model.predict_action(**batch). This
+            # makes the common `model(**processor_output)` pattern first-class.
+            unpacked = coerced.pop("**", None)
+            if unpacked is not None:
+                try:
+                    coerced = {**dict(unpacked), **coerced}
+                except (TypeError, ValueError) as ue:
+                    return _err(f"❌ '**' value is not a mapping: {ue}")
             result = obj(**coerced)
             if cache_key:
                 engine._CACHE[cache_key] = result  # cache raw object (model/processor)
@@ -256,7 +275,17 @@ def _resolve_target(target: str) -> Any:
         for attr in filter(None, tail.split(".")):
             obj = getattr(obj, attr)
         return obj
-    return registry.resolve_attr(target)
+    try:
+        return registry.resolve_attr(target)
+    except AttributeError:
+        # A legacy alias (e.g. AutoModelForVision2Seq) may have been clobbered by
+        # a model's remote code re-importing transformers. Re-assert and retry.
+        try:
+            from strands_transformers.core import compat
+            compat.apply(force=True)
+        except Exception:
+            pass
+        return registry.resolve_attr(target)
 
 
 def _coerce_param(value: Any) -> Any:
