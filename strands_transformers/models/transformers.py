@@ -53,6 +53,11 @@ def _extract_json(text: str) -> str:
     Handles reasoning models that prefix output with <think>...</think>, and
     JSON wrapped in markdown code fences. Falls back to the first balanced
     {...} or [...] span found in the text.
+
+    The balanced-span scan is string-aware (braces/brackets inside JSON string
+    literals do not affect nesting depth) and anchors on whichever delimiter --
+    object or array -- appears first, so a top-level array of objects is not
+    mistaken for its inner object.
     """
     # strip closed <think>...</think> reasoning blocks (Qwen3 etc.)
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
@@ -77,19 +82,42 @@ def _extract_json(text: str) -> str:
     except Exception:
         pass
 
-    # find first balanced JSON object or array
-    for open_ch, close_ch in (("{", "}"), ("[", "]")):
-        start = text.find(open_ch)
-        if start == -1:
+    # Balanced JSON span anchored at the first opening delimiter (object OR
+    # array, whichever appears first). A naive brace counter mishandles two real
+    # cases: a brace/bracket inside a string value (e.g. "echo }") prematurely
+    # closes the span, and a top-level array of objects ([{...}]) is truncated
+    # to its inner object. Track string/escape state and pick the earliest
+    # delimiter to handle both.
+    obj_start = text.find("{")
+    arr_start = text.find("[")
+    starts = [s for s in (obj_start, arr_start) if s != -1]
+    if not starts:
+        return text
+    start = min(starts)
+    open_ch = text[start]
+    close_ch = "}" if open_ch == "{" else "]"
+
+    depth = 0
+    in_str = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
             continue
-        depth = 0
-        for i in range(start, len(text)):
-            if text[i] == open_ch:
-                depth += 1
-            elif text[i] == close_ch:
-                depth -= 1
-                if depth == 0:
-                    return text[start : i + 1]
+        if ch == '"':
+            in_str = True
+        elif ch == open_ch:
+            depth += 1
+        elif ch == close_ch:
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
     return text
 
 
