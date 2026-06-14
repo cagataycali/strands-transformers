@@ -12,6 +12,8 @@
   </div>
 
   <p>
+    <a href="#why"><b>Why</b></a> ·
+    <a href="#60-second-hello-multimodal"><b>60-sec hello</b></a> ·
     <a href="#-multimodal-agent-brain-transformermodel"><b>Agent brain</b></a> ·
     <a href="#the-one-tool-use_transformers"><b>The tool</b></a> ·
     <a href="#robotics--vision-language-action-vla"><b>Robotics / VLA</b></a> ·
