@@ -198,6 +198,77 @@ def _normalize_video(payload: Any) -> Optional[Tuple[Any, Optional[float]]]:
     return None
 
 
+def _decode_audio(payload: Any, sampling_rate: Optional[int]) -> Optional[Tuple[Any, int]]:
+    """Decode an audio payload to (mono float32 waveform, sampling_rate).
+
+    Accepts a numpy waveform (used as-is), a (waveform, sr) tuple, or raw
+    container bytes (wav via stdlib; mp3/flac/ogg via soundfile/torchaudio if
+    present). Returns None if it cannot be decoded.
+    """
+    try:
+        import numpy as np
+    except Exception:
+        return None
+
+    # numpy waveform already
+    if isinstance(payload, np.ndarray):
+        wav = payload.astype("float32")
+        if wav.ndim > 1:  # downmix to mono
+            wav = wav.mean(axis=-1)
+        return wav, int(sampling_rate or 16000)
+
+    # (waveform, sr) tuple
+    if isinstance(payload, tuple) and len(payload) == 2:
+        return _decode_audio(payload[0], payload[1])
+
+    # raw container bytes
+    if isinstance(payload, (bytes, bytearray)):
+        data = bytes(payload)
+        # stdlib WAV (no ffmpeg needed)
+        try:
+            import io as _io
+            import wave
+
+            with wave.open(_io.BytesIO(data), "rb") as wf:
+                sr = wf.getframerate()
+                n = wf.getnframes()
+                ch = wf.getnchannels()
+                raw = wf.readframes(n)
+            wav = np.frombuffer(raw, dtype=np.int16).astype("float32") / 32768.0
+            if ch > 1:
+                wav = wav.reshape(-1, ch).mean(axis=1)
+            return wav, sr
+        except Exception:
+            pass
+        # soundfile fallback (mp3/flac/ogg)
+        try:
+            import io as _io
+            import soundfile as sf
+
+            wav, sr = sf.read(_io.BytesIO(data), dtype="float32")
+            if getattr(wav, "ndim", 1) > 1:
+                wav = wav.mean(axis=1)
+            return wav, sr
+        except Exception as e:
+            logger.warning("could not decode audio bytes: %s", e)
+            return None
+
+    # path string
+    if isinstance(payload, str):
+        try:
+            import soundfile as sf
+
+            wav, sr = sf.read(payload, dtype="float32")
+            if getattr(wav, "ndim", 1) > 1:
+                wav = wav.mean(axis=1)
+            return wav, sr
+        except Exception as e:
+            logger.warning("could not read audio path %s: %s", payload, e)
+            return None
+
+    return None
+
+
 def _document_to_text(doc: Dict[str, Any]) -> str:
     """Flatten a Strands DocumentContent block into plain text for the prompt."""
     name = doc.get("name", "document")
@@ -334,6 +405,7 @@ class TransformerModel(Model):
         # Multimodal state (resolved during load)
         self.processor = None
         self.is_multimodal = False
+        self.has_audio_input = False
 
         # Load model and tokenizer/processor
         self._load_model()
@@ -355,10 +427,13 @@ class TransformerModel(Model):
                 processor = AutoProcessor.from_pretrained(
                     model_path, trust_remote_code=trust
                 )
-                # A genuine multimodal processor exposes an image_processor.
+                # A genuine multimodal processor exposes an image_processor
+                # (vision) or a feature_extractor (audio: Qwen2-Audio / Omni).
                 has_image = getattr(processor, "image_processor", None) is not None
-                if force_mm or has_image:
+                has_audio = getattr(processor, "feature_extractor", None) is not None
+                if force_mm or has_image or has_audio:
                     self.is_multimodal = True
+                    self.has_audio_input = has_audio
             except Exception as e:
                 logger.debug("AutoProcessor unavailable for %s: %s", model_path, e)
                 processor = None
@@ -380,12 +455,22 @@ class TransformerModel(Model):
                 model_kwargs["torch_dtype"] = torch.bfloat16
                 model_kwargs["device_map"] = "cuda"
 
-            # Prefer the generic image-text-to-text class; fall back to Vision2Seq.
+            # Pick model class: audio-only models use audio-text classes;
+            # otherwise prefer image-text-to-text, fall back to Vision2Seq.
             self.model = None
-            for cls_name in (
-                "AutoModelForImageTextToText",
-                "AutoModelForVision2Seq",
-            ):
+            has_image = getattr(self.processor, "image_processor", None) is not None
+            if getattr(self, "has_audio_input", False) and not has_image:
+                cls_candidates = (
+                    "Qwen2_5OmniForConditionalGeneration",
+                    "Qwen2AudioForConditionalGeneration",
+                    "AutoModelForCausalLM",
+                )
+            else:
+                cls_candidates = (
+                    "AutoModelForImageTextToText",
+                    "AutoModelForVision2Seq",
+                )
+            for cls_name in cls_candidates:
                 try:
                     import transformers as _tf
 
@@ -466,24 +551,26 @@ class TransformerModel(Model):
 
     def _content_to_processor_parts(
         self, content: Union[ContentBlock, Dict[str, Any]]
-    ) -> Tuple[List[Dict[str, Any]], List[Any], List[Any]]:
+    ) -> Tuple[List[Dict[str, Any]], List[Any], List[Any], List[Any]]:
         """Convert a single Strands content block into processor chat parts.
 
-        Returns a tuple of (parts, images, videos) where ``parts`` are the
-        chat-template entries (e.g. {"type": "text"|"image"|"video"}) and
-        ``images``/``videos`` are the decoded media objects collected in order.
+        Returns (parts, images, videos, audios) where ``parts`` are the
+        chat-template entries (e.g. {"type": "text"|"image"|"video"|"audio"})
+        and the media lists hold decoded objects collected in order.
 
-        Supports the full multimodal taxonomy: text, image, video, document,
-        toolUse, and toolResult (whose content may itself carry image/video).
+        Supports the full multimodal taxonomy plus our audio extension: text,
+        image, video, audio, document, toolUse, and toolResult (whose content
+        may itself carry image/video/audio).
         """
         parts: List[Dict[str, Any]] = []
         images: List[Any] = []
         videos: List[Any] = []
+        audios: List[Any] = []
 
         # text
         if "text" in content:
             parts.append({"type": "text", "text": content["text"]})
-            return parts, images, videos
+            return parts, images, videos, audios
 
         # image (Strands ImageContent: {"format","source":{"bytes"}}; also tolerate
         # bare PIL/bytes or the run-path {"image": <PIL>})
@@ -499,7 +586,22 @@ class TransformerModel(Model):
                 parts.append({"type": "image"})
             else:
                 parts.append({"type": "text", "text": "[unrenderable image]"})
-            return parts, images, videos
+            return parts, images, videos, audios
+
+        # audio (our extension: {"audio": {"format","source":{"bytes","sampling_rate"}}})
+        if "audio" in content:
+            from strands_transformers.types.audio import extract_audio_payload
+
+            payload, sr = extract_audio_payload(content)
+            decoded = _decode_audio(payload, sr)
+            if decoded is not None:
+                audios.append(decoded)
+                # Include both keys: 'type' (SmolVLM/Omni-style templates) and
+                # 'audio_url' (Qwen2-Audio template triggers on this key).
+                parts.append({"type": "audio", "audio_url": "audio"})
+            else:
+                parts.append({"type": "text", "text": "[unrenderable audio]"})
+            return parts, images, videos, audios
 
         # video
         if "video" in content:
@@ -514,12 +616,12 @@ class TransformerModel(Model):
                 parts.append({"type": "video"})
             else:
                 parts.append({"type": "text", "text": "[unrenderable video]"})
-            return parts, images, videos
+            return parts, images, videos, audios
 
         # document -> flatten to text
         if "document" in content:
             parts.append({"type": "text", "text": _document_to_text(content["document"])})
-            return parts, images, videos
+            return parts, images, videos, audios
 
         # toolUse -> compact text marker
         if "toolUse" in content:
@@ -532,7 +634,7 @@ class TransformerModel(Model):
                     + "</tool_call>",
                 }
             )
-            return parts, images, videos
+            return parts, images, videos, audios
 
         # toolResult -> fold text/json as text, and pull media into the turn
         if "toolResult" in content:
@@ -560,24 +662,33 @@ class TransformerModel(Model):
                         arr, fps = vnorm
                         videos.append((arr, explicit_fps if explicit_fps is not None else fps))
                         parts.append({"type": "video"})
+                elif "audio" in c:
+                    from strands_transformers.types.audio import extract_audio_payload
+
+                    apayload, asr = extract_audio_payload(c)
+                    adec = _decode_audio(apayload, asr)
+                    if adec is not None:
+                        audios.append(adec)
+                        parts.append({"type": "audio", "audio_url": "audio"})
             if not parts:
                 parts.append({"type": "text", "text": "[empty tool result]"})
-            return parts, images, videos
+            return parts, images, videos, audios
 
         # unknown -> stringify
         parts.append({"type": "text", "text": str(content)})
-        return parts, images, videos
+        return parts, images, videos, audios
 
     def _build_multimodal_chat(
         self,
         messages: Messages,
         system_prompt: Optional[str],
         tool_specs: Optional[list[ToolSpec]],
-    ) -> Tuple[List[Dict[str, Any]], List[Any], List[Any]]:
+    ) -> Tuple[List[Dict[str, Any]], List[Any], List[Any], List[Any]]:
         """Build processor chat messages + ordered media lists."""
         chat: List[Dict[str, Any]] = []
         images: List[Any] = []
         videos: List[Any] = []
+        audios: List[Any] = []
 
         sys_text = system_prompt or ""
         if tool_specs:
@@ -589,14 +700,15 @@ class TransformerModel(Model):
             role = message["role"]
             parts: List[Dict[str, Any]] = []
             for content in message["content"]:
-                p, imgs, vids = self._content_to_processor_parts(content)
+                p, imgs, vids, auds = self._content_to_processor_parts(content)
                 parts.extend(p)
                 images.extend(imgs)
                 videos.extend(vids)
+                audios.extend(auds)
             if parts:
                 chat.append({"role": role, "content": parts})
 
-        return chat, images, videos
+        return chat, images, videos, audios
 
     @staticmethod
     def _tool_specs_to_text(tool_specs: list[ToolSpec]) -> str:
@@ -623,6 +735,23 @@ class TransformerModel(Model):
                     v = v.to(target_dtype)
             out[k] = v
         return out
+
+    @staticmethod
+    def _resample(wav, src_sr: int, dst_sr: int):
+        """Linear-interp resample of a mono waveform (no scipy dependency)."""
+        try:
+            import numpy as np
+        except Exception:
+            return wav
+        if not src_sr or src_sr == dst_sr:
+            return wav
+        wav = np.asarray(wav, dtype="float32")
+        n_dst = int(round(len(wav) * float(dst_sr) / float(src_sr)))
+        if n_dst <= 1 or len(wav) <= 1:
+            return wav
+        x_old = np.linspace(0.0, 1.0, num=len(wav), endpoint=False)
+        x_new = np.linspace(0.0, 1.0, num=n_dst, endpoint=False)
+        return np.interp(x_new, x_old, wav).astype("float32")
 
     def _build_video_metadata(self, videos: List[Tuple[Any, Optional[float]]]):
         """Build per-video VideoMetadata so the processor gets real timestamps.
@@ -666,7 +795,7 @@ class TransformerModel(Model):
         tool_specs: Optional[list[ToolSpec]],
     ) -> Tuple[Dict[str, Any], int]:
         """Tokenize via the processor; returns (model_inputs, input_token_length)."""
-        chat, images, videos = self._build_multimodal_chat(
+        chat, images, videos, audios = self._build_multimodal_chat(
             messages, system_prompt, tool_specs
         )
 
@@ -677,6 +806,17 @@ class TransformerModel(Model):
         proc_kwargs: Dict[str, Any] = {"text": prompt, "return_tensors": "pt"}
         if images:
             proc_kwargs["images"] = images
+        if audios:
+            # audios is a list of (waveform float32, sr) tuples. Resample to the
+            # processor feature_extractor rate and pass raw waveforms.
+            target_sr = getattr(
+                getattr(self.processor, "feature_extractor", None),
+                "sampling_rate",
+                16000,
+            )
+            waves = [self._resample(w, sr, target_sr) for (w, sr) in audios]
+            proc_kwargs["audio"] = waves
+            proc_kwargs["sampling_rate"] = target_sr
         if videos:
             # videos is a list of (array(T,H,W,C), fps_or_None) tuples.
             arrays = [v[0] for v in videos]
@@ -1094,14 +1234,14 @@ class TransformerModel(Model):
 
     @staticmethod
     def _has_media(messages: Messages) -> bool:
-        """Return True if any message carries image/video content (incl. tool results)."""
+        """Return True if any message carries image/video/audio (incl. tool results)."""
         for message in messages:
             for content in message.get("content", []):
-                if "image" in content or "video" in content:
+                if "image" in content or "video" in content or "audio" in content:
                     return True
                 if "toolResult" in content:
                     for c in content["toolResult"].get("content", []):
-                        if "image" in c or "video" in c:
+                        if "image" in c or "video" in c or "audio" in c:
                             return True
         return False
 
