@@ -7,6 +7,7 @@ fine-tuned models with merged LoRA weights.
 """
 
 import json
+import re
 import logging
 import time
 from typing import (
@@ -40,6 +41,52 @@ from strands.models._validation import (
 from strands.models.model import Model
 
 logger = logging.getLogger(__name__)
+
+def _extract_json(text: str) -> str:
+    """Pull a JSON object/array out of a model response.
+
+    Handles reasoning models that prefix output with <think>...</think>, and
+    JSON wrapped in markdown code fences. Falls back to the first balanced
+    {...} or [...] span found in the text.
+    """
+    # strip closed <think>...</think> reasoning blocks (Qwen3 etc.)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+    # for an unterminated <think> (no closing tag), drop the tag itself but keep
+    # the trailing content (which usually contains the JSON answer)
+    text = text.replace("<think>", "")
+
+    # markdown code fences
+    if "```json" in text:
+        text = text.split("```json", 1)[1].split("```", 1)[0]
+    elif "```" in text:
+        parts = text.split("```")
+        if len(parts) >= 3:
+            text = parts[1]
+
+    text = text.strip()
+
+    # already valid?
+    try:
+        json.loads(text)
+        return text
+    except Exception:
+        pass
+
+    # find first balanced JSON object or array
+    for open_ch, close_ch in (("{", "}"), ("[", "]")):
+        start = text.find(open_ch)
+        if start == -1:
+            continue
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == open_ch:
+                depth += 1
+            elif text[i] == close_ch:
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
+    return text
+
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -732,15 +779,7 @@ class TransformerModel(Model):
 
         # Parse and validate the JSON response
         try:
-            # Extract JSON from markdown code blocks if present
-            if "```json" in response_text:
-                response_text = (
-                    response_text.split("```json")[1].split("```")[0].strip()
-                )
-            elif "```" in response_text:
-                response_text = response_text.split("```")[1].split("```")[0].strip()
-
-            data = json.loads(response_text.strip())
+            data = json.loads(_extract_json(response_text))
             output_instance = output_model(**data)
             yield {"output": output_instance}
         except Exception as e:
