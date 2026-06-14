@@ -464,7 +464,18 @@ The `run` path writes media to disk and returns the path in the result's
 
 Run `use_transformers(action="tasks")` for the live, complete list on your install.
 
+## Contributing
+
+New transformers task? It already works — `use_transformers` reads the taxonomy at
+runtime. Found a model that needs special handling, or want a new example? PRs
+welcome: add a runnable, GPU-verified example to [`examples/`](examples/) and keep
+`examples/smoke.py` green.
+
 ## License
 
 MIT — built with [Strands Agents SDK](https://github.com/strands-agents/sdk-python)
 and [HuggingFace Transformers](https://github.com/huggingface/transformers).
+
+<div align="center">
+  <sub>If this saved you a pile of per-model glue code, consider giving it a ⭐</sub>
+</div>
