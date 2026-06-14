@@ -228,6 +228,21 @@ back the words it was asked to say.
 Streaming, tool-calling, and Qwen3 `<think>` reasoning are all supported — see
 [`models/transformers.py`](strands_transformers/models/transformers.py).
 
+### Choosing a model
+
+`device="auto"` picks cuda → mps → cpu, and bf16 on GPU. Pick by what you need:
+
+| Want | Try | Notes |
+|------|-----|-------|
+| Tiny vision agent (laptop/CPU) | `HuggingFaceTB/SmolVLM-256M-Instruct` | the 60-sec demo; fast, runs anywhere |
+| Video understanding | `HuggingFaceTB/SmolVLM2-500M-Video-Instruct` | accepts `video` blocks |
+| Audio in → text | `Qwen/Qwen2-Audio-7B-Instruct` | hears audio in the conversation |
+| Audio in **and** speech out | `Qwen/Qwen2.5-Omni-3B` | ~12 GB; `speak=True` for voice |
+| Text-only reasoning brain | `Qwen/Qwen3-0.6B` … `Qwen3-8B` | `<think>` mode, tool-calling |
+
+Multimodal is detected automatically from the model's processor — you don't flag
+it. Text-only models keep the fast tokenizer path with zero overhead.
+
 ---
 
 ## The one tool: `use_transformers`
