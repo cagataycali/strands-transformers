@@ -78,10 +78,31 @@ def serialize_output(result: Any, task: str = "", save_artifacts: bool = True) -
     """
     artifacts: List[str] = []
     payload = _serialize(result, artifacts, save_artifacts)
+    payload = _ensure_json_safe(payload)
     out: Dict[str, Any] = {"result": payload}
     if artifacts:
         out["artifacts"] = artifacts
     return out
+
+
+def _ensure_json_safe(obj: Any) -> Any:
+    """Final guarantee that the serialized payload is JSON-encodable.
+
+    _serialize already converts known types; this is a cheap safety net that
+    stringifies anything still non-encodable (so the tool never returns a result
+    that breaks json.dumps downstream).
+    """
+    import json as _json
+
+    try:
+        _json.dumps(obj)
+        return obj
+    except (TypeError, ValueError):
+        if isinstance(obj, dict):
+            return {str(k): _ensure_json_safe(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_ensure_json_safe(v) for v in obj]
+        return str(obj)[:500]
 
 
 def _serialize(obj: Any, artifacts: List[str], save: bool, depth: int = 0) -> Any:
@@ -122,6 +143,8 @@ def _serialize(obj: Any, artifacts: List[str], save: bool, depth: int = 0) -> An
         return {str(k): _serialize(v, artifacts, save, depth + 1) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [_serialize(v, artifacts, save, depth + 1) for v in obj[:200]]
+    if isinstance(obj, (set, frozenset)):
+        return [_serialize(v, artifacts, save, depth + 1) for v in list(obj)[:200]]
 
     # Objects with __dict__ (e.g. ModelOutput) → try dict-like
     if hasattr(obj, "to_dict"):
