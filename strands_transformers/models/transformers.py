@@ -357,6 +357,8 @@ class TransformerModel(Model):
         low_cpu_mem_usage: bool
         multimodal: Optional[bool]
         video_fps: Optional[float]
+        speak: Optional[bool]
+        speaker: Optional[str]
 
     def __init__(
         self,
@@ -455,13 +457,31 @@ class TransformerModel(Model):
                 model_kwargs["torch_dtype"] = torch.bfloat16
                 model_kwargs["device_map"] = "cuda"
 
-            # Pick model class: audio-only models use audio-text classes;
-            # otherwise prefer image-text-to-text, fall back to Vision2Seq.
+            # Pick model class. Detect specific omni/audio architectures from the
+            # config first (they need their own classes, not the generic vision
+            # ones), then audio-only, then vision.
             self.model = None
             has_image = getattr(self.processor, "image_processor", None) is not None
-            if getattr(self, "has_audio_input", False) and not has_image:
+            arch = ""
+            try:
+                from transformers import AutoConfig
+
+                _cfg = AutoConfig.from_pretrained(model_path, trust_remote_code=trust)
+                archs = getattr(_cfg, "architectures", None) or []
+                arch = archs[0] if archs else getattr(_cfg, "model_type", "")
+            except Exception:
+                arch = ""
+            arch_l = (arch or "").lower()
+
+            if "omni" in arch_l:
                 cls_candidates = (
                     "Qwen2_5OmniForConditionalGeneration",
+                    "AutoModelForCausalLM",
+                )
+            elif "qwen2audio" in arch_l or "qwen2_audio" in arch_l or (
+                getattr(self, "has_audio_input", False) and not has_image
+            ):
+                cls_candidates = (
                     "Qwen2AudioForConditionalGeneration",
                     "AutoModelForCausalLM",
                 )
@@ -522,6 +542,13 @@ class TransformerModel(Model):
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
         # Detect Qwen3 for thinking mode
+        # Detect Qwen2.5-Omni: non-standard generate (returns (text, audio),
+        # uses thinker_/talker_ kwargs, can emit speech). Needs its own path.
+        self.is_omni = type(self.model).__name__.startswith("Qwen2_5Omni")
+        # Speech-out config (only meaningful for Omni). Off by default so the
+        # text streaming path stays fast; enable via config "speak": True.
+        self.last_audio = None
+
         self.is_qwen3 = "qwen3" in model_path.lower() or (
             hasattr(self.model, "config")
             and getattr(self.model.config, "model_type", "") == "qwen3"
@@ -1003,6 +1030,114 @@ class TransformerModel(Model):
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']}> | unknown type")
 
+    async def _stream_omni(self, model_inputs, input_length, start_time):
+        """Dedicated streaming path for Qwen2.5-Omni.
+
+        Omni's generate() is non-standard: it returns (text_ids, audio_waveform)
+        and uses thinker_/talker_ kwargs instead of max_new_tokens. It can also
+        synthesize speech via its Talker. We run generate in a worker thread,
+        decode the newly generated text, emit it as a content delta, and stash
+        any speech waveform on ``self.last_audio`` (a (waveform, sr) tuple).
+        """
+        import asyncio
+        import torch
+
+        params = self.config.get("params", {})
+        thinker_max = int(params.get("max_tokens", 256))
+        speak = bool(self.config.get("speak", False))
+        speaker = self.config.get("speaker", "Chelsie")
+        talker_max = int(params.get("talker_max_tokens", 1024)) if speak else 1
+
+        gen_kwargs = dict(model_inputs)
+        gen_kwargs.update(
+            return_audio=speak,
+            thinker_max_new_tokens=thinker_max,
+            talker_max_new_tokens=talker_max,
+        )
+        if speak:
+            gen_kwargs["speaker"] = speaker
+
+        result = {}
+
+        def _run():
+            try:
+                with torch.no_grad():
+                    out = self.model.generate(**gen_kwargs)
+                result["out"] = out
+            except Exception as e:  # surface generation errors to the stream
+                result["err"] = e
+
+        thread = Thread(target=_run)
+        thread.start()
+        while thread.is_alive():
+            await asyncio.sleep(0.02)
+        thread.join()
+
+        yield self._format_chunk({"chunk_type": "message_start"})
+        yield self._format_chunk({"chunk_type": "content_start"})
+
+        if "err" in result:
+            err_text = f"[omni generation error: {result['err']}]"
+            yield self._format_chunk({"chunk_type": "content_delta", "data": err_text})
+            yield self._format_chunk({"chunk_type": "content_stop"})
+            yield self._format_chunk({"chunk_type": "message_stop", "reason": "end_turn"})
+            return
+
+        out = result["out"]
+        audio = None
+        if isinstance(out, (tuple, list)):
+            text_ids = out[0]
+            if len(out) > 1:
+                audio = out[1]
+        else:
+            text_ids = out
+
+        # Decode only the newly generated tokens (strip the prompt).
+        seq = text_ids[0] if hasattr(text_ids, "__getitem__") else text_ids
+        try:
+            new_ids = seq[input_length:]
+        except Exception:
+            new_ids = seq
+        text = self.tokenizer.decode(new_ids, skip_special_tokens=True).strip()
+        if not text:
+            # fall back to full decode if the slice came back empty
+            text = self.tokenizer.decode(seq, skip_special_tokens=True).strip()
+
+        # Stash synthesized speech for retrieval via get_last_audio().
+        self.last_audio = None
+        if audio is not None:
+            try:
+                wav = audio.detach().float().cpu().numpy().reshape(-1)
+                if wav.size > 0:
+                    self.last_audio = (wav, 24000)  # Talker output is 24 kHz
+            except Exception as e:
+                logger.warning("could not extract omni audio: %s", e)
+
+        if text:
+            yield self._format_chunk({"chunk_type": "content_delta", "data": text})
+        output_tokens = len(new_ids) if hasattr(new_ids, "__len__") else 0
+
+        yield self._format_chunk({"chunk_type": "content_stop"})
+        yield self._format_chunk({"chunk_type": "message_stop", "reason": "end_turn"})
+
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        yield self._format_chunk(
+            {
+                "chunk_type": "metadata",
+                "input_tokens": input_length,
+                "output_tokens": output_tokens,
+                "latency_ms": latency_ms,
+            }
+        )
+
+    def get_last_audio(self):
+        """Return the most recent synthesized speech as (waveform, sr) or None.
+
+        Populated after a generation when the model is Qwen2.5-Omni and
+        config ``speak=True``. Lets callers save/play the agent's spoken reply.
+        """
+        return getattr(self, "last_audio", None)
+
     @override
     async def stream(
         self,
@@ -1024,7 +1159,9 @@ class TransformerModel(Model):
         start_time = time.perf_counter()
 
         # Decide path: multimodal model + any media present anywhere.
-        use_mm = self.is_multimodal and self._has_media(messages)
+        # Omni always uses the processor path (its chat template / token layout
+        # is required even for text-only turns).
+        use_mm = self.is_omni or (self.is_multimodal and self._has_media(messages))
 
         logger.debug("formatting messages (multimodal=%s)", use_mm)
 
@@ -1048,6 +1185,12 @@ class TransformerModel(Model):
             inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
             model_inputs = inputs
             input_length = inputs["input_ids"].shape[1]
+
+        # ── Qwen2.5-Omni dedicated path (non-standard generate) ──
+        if self.is_omni:
+            async for ev in self._stream_omni(model_inputs, input_length, start_time):
+                yield ev
+            return
 
         # Generation parameters
         params = self.config.get("params", {})
