@@ -6,7 +6,18 @@
   <div>
     <a href="https://github.com/cagataycali/strands-transformers/issues"><img alt="issues" src="https://img.shields.io/github/issues/cagataycali/strands-transformers"/></a>
     <a href="https://python.org"><img alt="python" src="https://img.shields.io/badge/python-3.10+-blue"/></a>
+    <img alt="transformers" src="https://img.shields.io/badge/🤗_transformers-24_tasks-yellow"/>
+    <img alt="modalities" src="https://img.shields.io/badge/modalities-text·image·video·audio-orange"/>
+    <img alt="license" src="https://img.shields.io/badge/license-MIT-green"/>
   </div>
+
+  <p>
+    <a href="#-multimodal-agent-brain-transformermodel"><b>Agent brain</b></a> ·
+    <a href="#the-one-tool-use_transformers"><b>The tool</b></a> ·
+    <a href="#robotics--vision-language-action-vla"><b>Robotics / VLA</b></a> ·
+    <a href="#examples-at-a-glance"><b>Examples</b></a> ·
+    <a href="#how-100-coverage-works"><b>How it works</b></a>
+  </p>
 </div>
 
 ---
