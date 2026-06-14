@@ -1,0 +1,86 @@
+site_name: Strands Transformers
+site_description: The universal entrypoint to HuggingFace transformers for Strands agents.
+site_author: Cagatay Cali
+repo_url: https://github.com/cagataycali/strands-transformers
+repo_name: cagataycali/strands-transformers
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: yellow
+      accent: deep orange
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: yellow
+      accent: deep orange
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.tracking
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - toc.follow
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: guide/installation.md
+      - Quickstart: guide/quickstart.md
+  - Guide:
+      - The tool (use_transformers): guide/the-tool.md
+      - The agent brain (TransformerModel): guide/agent-brain.md
+      - Content blocks & modalities: guide/content-blocks.md
+      - Audio (in & out): guide/audio.md
+      - Robotics / VLA: guide/robotics.md
+      - Legacy model compatibility: guide/compat.md
+  - Reference:
+      - Architecture: reference/architecture.md
+      - TransformerModel API: reference/transformer-model.md
+      - use_transformers API: reference/use-transformers.md
+      - Examples: reference/examples.md
+  - Contributing: guide/contributing.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.emoji
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            members_order: source
+            docstring_style: google
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/cagataycali/strands-transformers

@@ -41,7 +41,8 @@ audio = ["soundfile", "librosa"]
 vision = ["pillow", "opencv-python", "av"]
 training = ["trl", "peft", "accelerate", "datasets"]
 dev = ["pytest>=7.0", "black", "ruff"]
-all = ["strands-transformers[audio,vision,training,dev]"]
+docs = ["mkdocs-material", "mkdocstrings[python]", "pymdown-extensions"]
+all = ["strands-transformers[audio,vision,training,dev,docs]"]
 
 [project.urls]
 Homepage = "https://github.com/cagataycali/strands-transformers"
