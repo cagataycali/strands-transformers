@@ -1,11 +1,13 @@
 """HuggingFace Transformers model provider.
 
 Direct integration with locally loaded transformers models, supporting
-fine-tuned models with merged LoRA weights.
+fine-tuned models with merged LoRA weights AND multimodal (vision-language)
+models that consume image / video / document content blocks.
 
 - Docs: https://huggingface.co/docs/transformers
 """
 
+import io
 import json
 import re
 import logging
@@ -14,7 +16,9 @@ from typing import (
     Any,
     AsyncGenerator,
     Dict,
+    List,
     Optional,
+    Tuple,
     Type,
     TypeVar,
     Union,
@@ -41,6 +45,7 @@ from strands.models._validation import (
 from strands.models.model import Model
 
 logger = logging.getLogger(__name__)
+
 
 def _extract_json(text: str) -> str:
     """Pull a JSON object/array out of a model response.
@@ -88,6 +93,78 @@ def _extract_json(text: str) -> str:
     return text
 
 
+def _bytes_to_pil(data: Any) -> Optional[Any]:
+    """Best-effort decode of image bytes (or a passthrough PIL/np image) to PIL.Image.
+
+    Returns None if PIL is unavailable or the payload can't be decoded.
+    """
+    try:
+        from PIL import Image
+    except Exception:  # pragma: no cover - PIL should be present for VLMs
+        return None
+
+    # Already a PIL image
+    if Image.isImageType(data):
+        return data
+
+    # numpy array -> PIL
+    try:
+        import numpy as np
+
+        if isinstance(data, np.ndarray):
+            return Image.fromarray(data)
+    except Exception:
+        pass
+
+    # raw bytes -> PIL
+    if isinstance(data, (bytes, bytearray)):
+        try:
+            return Image.open(io.BytesIO(bytes(data))).convert("RGB")
+        except Exception as e:
+            logger.warning("failed to decode image bytes: %s", e)
+            return None
+
+    # data URI / file path string
+    if isinstance(data, str):
+        try:
+            if data.startswith("data:"):
+                import base64
+
+                b64 = data.split(",", 1)[1]
+                return Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
+            return Image.open(data).convert("RGB")
+        except Exception as e:
+            logger.warning("failed to open image path/uri: %s", e)
+            return None
+
+    return None
+
+
+def _document_to_text(doc: Dict[str, Any]) -> str:
+    """Flatten a Strands DocumentContent block into plain text for the prompt."""
+    name = doc.get("name", "document")
+    fmt = doc.get("format", "txt")
+    source = doc.get("source", {}) or {}
+    raw = source.get("bytes") if isinstance(source, dict) else None
+
+    text_body = ""
+    if isinstance(raw, (bytes, bytearray)):
+        try:
+            text_body = bytes(raw).decode("utf-8", errors="replace")
+        except Exception:
+            text_body = f"<{len(raw)} bytes of binary {fmt} document>"
+    elif isinstance(raw, str):
+        text_body = raw
+    elif isinstance(source, list):
+        # DocumentSource may be a list of {text: ...} blocks
+        text_body = "\n".join(
+            b.get("text", "") for b in source if isinstance(b, dict)
+        )
+
+    header = f"[Document: {name} ({fmt})]"
+    return f"{header}\n{text_body}".strip()
+
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -98,29 +175,28 @@ class TransformerModel(Model):
     external servers or format conversion. Ideal for fine-tuned models with
     merged LoRA weights.
 
+    Supports BOTH:
+    - text-only causal LMs (AutoModelForCausalLM + AutoTokenizer)
+    - multimodal vision-language models (AutoModelForImageTextToText +
+      AutoProcessor) that consume image / video / document content blocks.
+
     The implementation handles:
     - Local model loading with device management
+    - Automatic multimodal detection (processor with an image_processor)
     - Streaming responses with TextIteratorStreamer
     - Tool/function calling
     - Qwen3 thinking mode
-    - Chat template formatting
+    - Chat template formatting (tokenizer OR processor)
+    - image / video / document content blocks, including media returned
+      inside a toolResult
 
     Example:
-        Basic usage:
-        >>> model = TransformerModel(model_path="./my_finetuned_model")
-        >>> model.update_config(params={"temperature": 0.7, "max_tokens": 100})
+        Text-only:
+        >>> model = TransformerModel(model_path="Qwen/Qwen3-0.6B")
 
-        With custom device:
-        >>> model = TransformerModel(
-        ...     model_path="Qwen/Qwen3-1.7B",
-        ...     device="cuda"
-        ... )
-
-        Qwen3 with thinking mode:
-        >>> model = TransformerModel(
-        ...     model_path="Qwen/Qwen3-1.7B",
-        ...     enable_thinking=True
-        ... )
+        Vision-language (multimodal auto-detected):
+        >>> model = TransformerModel(model_path="HuggingFaceTB/SmolVLM-256M-Instruct")
+        >>> # now an Agent(model=model) can be passed image content blocks
     """
 
     class TransformerConfig(TypedDict, total=False):
@@ -140,6 +216,8 @@ class TransformerModel(Model):
             enable_thinking: Enable Qwen3 thinking mode (default: True)
             trust_remote_code: Trust remote code when loading model (default: True)
             low_cpu_mem_usage: Use low CPU memory mode (default: False)
+            multimodal: Force-enable/disable multimodal processor path.
+                Default: auto-detected from the loaded processor.
         """
 
         model_path: str
@@ -148,6 +226,7 @@ class TransformerModel(Model):
         enable_thinking: bool
         trust_remote_code: bool
         low_cpu_mem_usage: bool
+        multimodal: Optional[bool]
 
     def __init__(
         self,
@@ -193,59 +272,122 @@ class TransformerModel(Model):
 
         logger.debug("device=<%s> | selected", self.device)
 
-        # Load model and tokenizer
+        # Multimodal state (resolved during load)
+        self.processor = None
+        self.is_multimodal = False
+
+        # Load model and tokenizer/processor
         self._load_model()
 
     def _load_model(self) -> None:
-        """Load model and tokenizer from path."""
+        """Load model and tokenizer (and processor, if multimodal) from path."""
         model_path = self.config["model_path"]
+        trust = self.config["trust_remote_code"]
         logger.debug("model_path=<%s> | loading", model_path)
 
-        # Load tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            model_path,
-            trust_remote_code=self.config["trust_remote_code"],
-        )
+        force_mm = self.config.get("multimodal")
+
+        # ── Try the multimodal (processor) path first, unless explicitly disabled ──
+        processor = None
+        if force_mm is not False:
+            try:
+                from transformers import AutoProcessor
+
+                processor = AutoProcessor.from_pretrained(
+                    model_path, trust_remote_code=trust
+                )
+                # A genuine multimodal processor exposes an image_processor.
+                has_image = getattr(processor, "image_processor", None) is not None
+                if force_mm or has_image:
+                    self.is_multimodal = True
+            except Exception as e:
+                logger.debug("AutoProcessor unavailable for %s: %s", model_path, e)
+                processor = None
+
+        if self.is_multimodal and processor is not None:
+            self.processor = processor
+            # Tokenizer lives on the processor for chat templating / counting
+            self.tokenizer = getattr(processor, "tokenizer", None)
+            if self.tokenizer is None:
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    model_path, trust_remote_code=trust
+                )
+
+            model_kwargs: Dict[str, Any] = {
+                "trust_remote_code": trust,
+                "low_cpu_mem_usage": self.config["low_cpu_mem_usage"],
+            }
+            if self.device == "cuda":
+                model_kwargs["torch_dtype"] = torch.bfloat16
+                model_kwargs["device_map"] = "cuda"
+
+            # Prefer the generic image-text-to-text class; fall back to Vision2Seq.
+            self.model = None
+            for cls_name in (
+                "AutoModelForImageTextToText",
+                "AutoModelForVision2Seq",
+            ):
+                try:
+                    import transformers as _tf
+
+                    ModelCls = getattr(_tf, cls_name, None)
+                    if ModelCls is None:
+                        continue
+                    self.model = ModelCls.from_pretrained(model_path, **model_kwargs)
+                    logger.debug("loaded multimodal model via %s", cls_name)
+                    break
+                except Exception as e:
+                    logger.debug("%s failed for %s: %s", cls_name, model_path, e)
+                    continue
+
+            if self.model is None:
+                # Last resort: AutoModel
+                from transformers import AutoModel
+
+                self.model = AutoModel.from_pretrained(model_path, **model_kwargs)
+
+            if self.device == "cuda" and "device_map" not in model_kwargs:
+                self.model = self.model.to(self.device)
+
+            logger.debug("multimodal model loaded successfully")
+        else:
+            # ── Text-only path (unchanged behaviour) ──
+            self.is_multimodal = False
+            self.processor = None
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_path, trust_remote_code=trust
+            )
+
+            model_kwargs = {
+                "trust_remote_code": trust,
+                "low_cpu_mem_usage": self.config["low_cpu_mem_usage"],
+            }
+            if self.device == "cuda":
+                model_kwargs["torch_dtype"] = torch.bfloat16
+
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_path, **model_kwargs
+            )
+            if self.device == "cuda":
+                self.model = self.model.to(self.device)
+
+            logger.debug("text model loaded successfully")
 
         # Set padding token
-        if self.tokenizer.pad_token is None:
+        if self.tokenizer is not None and self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        # Load model
-        model_kwargs = {
-            "trust_remote_code": self.config["trust_remote_code"],
-            "low_cpu_mem_usage": self.config["low_cpu_mem_usage"],
-        }
-
-        # Use bfloat16 if available
-        if self.device == "cuda":
-            model_kwargs["torch_dtype"] = torch.bfloat16
-
-        self.model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
-
-        # Move to device
-        if self.device == "cuda":
-            self.model = self.model.to(self.device)
-        # Note: For CPU and MPS, model stays where it was loaded
-
-        logger.debug("model loaded successfully")
 
         # Detect Qwen3 for thinking mode
         self.is_qwen3 = "qwen3" in model_path.lower() or (
-            hasattr(self.model.config, "model_type")
-            and self.model.config.model_type == "qwen3"
+            hasattr(self.model, "config")
+            and getattr(self.model.config, "model_type", "") == "qwen3"
         )
 
     @override
     def update_config(self, **model_config: Unpack[TransformerConfig]) -> None:  # type: ignore[override]
-        """Update the transformers model configuration with provided arguments.
-
-        Args:
-            **model_config: Configuration overrides.
-        """
+        """Update the transformers model configuration with provided arguments."""
         validate_config_keys(model_config, self.TransformerConfig)
 
-        # If model_path changed, reload model
         if "model_path" in model_config and model_config[
             "model_path"
         ] != self.config.get("model_path"):
@@ -256,34 +398,204 @@ class TransformerModel(Model):
 
     @override
     def get_config(self) -> TransformerConfig:
-        """Get the transformers model configuration.
-
-        Returns:
-            The transformers model configuration.
-        """
+        """Get the transformers model configuration."""
         return self.config  # type: ignore[return-value]
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Multimodal content-block handling
+    # ──────────────────────────────────────────────────────────────────────
+
+    def _content_to_processor_parts(
+        self, content: Union[ContentBlock, Dict[str, Any]]
+    ) -> Tuple[List[Dict[str, Any]], List[Any], List[Any]]:
+        """Convert a single Strands content block into processor chat parts.
+
+        Returns a tuple of (parts, images, videos) where ``parts`` are the
+        chat-template entries (e.g. {"type": "text"|"image"|"video"}) and
+        ``images``/``videos`` are the decoded media objects collected in order.
+
+        Supports the full multimodal taxonomy: text, image, video, document,
+        toolUse, and toolResult (whose content may itself carry image/video).
+        """
+        parts: List[Dict[str, Any]] = []
+        images: List[Any] = []
+        videos: List[Any] = []
+
+        # text
+        if "text" in content:
+            parts.append({"type": "text", "text": content["text"]})
+            return parts, images, videos
+
+        # image (Strands ImageContent: {"format","source":{"bytes"}}; also tolerate
+        # bare PIL/bytes or the run-path {"image": <PIL>})
+        if "image" in content:
+            img = content["image"]
+            payload = img
+            if isinstance(img, dict):
+                src = img.get("source", img)
+                payload = src.get("bytes", src) if isinstance(src, dict) else src
+            pil = _bytes_to_pil(payload)
+            if pil is not None:
+                images.append(pil)
+                parts.append({"type": "image"})
+            else:
+                parts.append({"type": "text", "text": "[unrenderable image]"})
+            return parts, images, videos
+
+        # video
+        if "video" in content:
+            vid = content["video"]
+            src = vid.get("source", vid) if isinstance(vid, dict) else vid
+            payload = src.get("bytes", src) if isinstance(src, dict) else src
+            videos.append(payload)
+            parts.append({"type": "video"})
+            return parts, images, videos
+
+        # document -> flatten to text
+        if "document" in content:
+            parts.append({"type": "text", "text": _document_to_text(content["document"])})
+            return parts, images, videos
+
+        # toolUse -> compact text marker
+        if "toolUse" in content:
+            tu = content["toolUse"]
+            parts.append(
+                {
+                    "type": "text",
+                    "text": "<tool_call>"
+                    + json.dumps({"name": tu.get("name"), "arguments": tu.get("input")})
+                    + "</tool_call>",
+                }
+            )
+            return parts, images, videos
+
+        # toolResult -> fold text/json as text, and pull media into the turn
+        if "toolResult" in content:
+            tr = content["toolResult"]
+            for c in tr.get("content", []):
+                if "json" in c:
+                    parts.append({"type": "text", "text": json.dumps(c["json"])})
+                elif "text" in c:
+                    parts.append({"type": "text", "text": c["text"]})
+                elif "image" in c:
+                    img = c["image"]
+                    src = img.get("source", img) if isinstance(img, dict) else img
+                    payload = src.get("bytes", src) if isinstance(src, dict) else src
+                    pil = _bytes_to_pil(payload)
+                    if pil is not None:
+                        images.append(pil)
+                        parts.append({"type": "image"})
+                elif "video" in c:
+                    vid = c["video"]
+                    src = vid.get("source", vid) if isinstance(vid, dict) else vid
+                    parts.append({"type": "video"})
+                    videos.append(src.get("bytes", src) if isinstance(src, dict) else src)
+            if not parts:
+                parts.append({"type": "text", "text": "[empty tool result]"})
+            return parts, images, videos
+
+        # unknown -> stringify
+        parts.append({"type": "text", "text": str(content)})
+        return parts, images, videos
+
+    def _build_multimodal_chat(
+        self,
+        messages: Messages,
+        system_prompt: Optional[str],
+        tool_specs: Optional[list[ToolSpec]],
+    ) -> Tuple[List[Dict[str, Any]], List[Any], List[Any]]:
+        """Build processor chat messages + ordered media lists."""
+        chat: List[Dict[str, Any]] = []
+        images: List[Any] = []
+        videos: List[Any] = []
+
+        sys_text = system_prompt or ""
+        if tool_specs:
+            sys_text += self._tool_specs_to_text(tool_specs)
+        if sys_text:
+            chat.append({"role": "system", "content": [{"type": "text", "text": sys_text}]})
+
+        for message in messages:
+            role = message["role"]
+            parts: List[Dict[str, Any]] = []
+            for content in message["content"]:
+                p, imgs, vids = self._content_to_processor_parts(content)
+                parts.extend(p)
+                images.extend(imgs)
+                videos.extend(vids)
+            if parts:
+                chat.append({"role": role, "content": parts})
+
+        return chat, images, videos
+
+    @staticmethod
+    def _tool_specs_to_text(tool_specs: list[ToolSpec]) -> str:
+        desc = "\n\n# Available Tools\n\nYou have access to the following tools:\n\n"
+        for spec in tool_specs:
+            desc += f"## {spec['name']}\n{spec['description']}\n\n"
+            desc += f"Parameters: {json.dumps(spec['inputSchema']['json'], indent=2)}\n\n"
+        desc += (
+            "\nTo use a tool, output:\n"
+            '<tool_call>{"name": "tool_name", "arguments": {"param": "value"}}</tool_call>\n\n'
+            "You will receive the result in:\n"
+            "<tool_response>result</tool_response>\n"
+        )
+        return desc
+
+    def _to_model_device(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """Move tensors to the model device and cast float tensors to model dtype."""
+        target_dtype = getattr(self.model, "dtype", None)
+        out: Dict[str, Any] = {}
+        for k, v in inputs.items():
+            if hasattr(v, "to"):
+                v = v.to(self.model.device)
+                if target_dtype is not None and getattr(v, "is_floating_point", None) and v.is_floating_point():
+                    v = v.to(target_dtype)
+            out[k] = v
+        return out
+
+    def _prepare_multimodal_inputs(
+        self,
+        messages: Messages,
+        system_prompt: Optional[str],
+        tool_specs: Optional[list[ToolSpec]],
+    ) -> Tuple[Dict[str, Any], int]:
+        """Tokenize via the processor; returns (model_inputs, input_token_length)."""
+        chat, images, videos = self._build_multimodal_chat(
+            messages, system_prompt, tool_specs
+        )
+
+        prompt = self.processor.apply_chat_template(
+            chat, tokenize=False, add_generation_prompt=True
+        )
+
+        proc_kwargs: Dict[str, Any] = {"text": prompt, "return_tensors": "pt"}
+        if images:
+            proc_kwargs["images"] = images
+        if videos:
+            proc_kwargs["videos"] = videos
+
+        inputs = self.processor(**proc_kwargs)
+        inputs = dict(inputs)  # BatchFeature -> plain dict
+        inputs = self._to_model_device(inputs)
+
+        input_length = (
+            inputs["input_ids"].shape[1] if "input_ids" in inputs else 0
+        )
+        return inputs, input_length
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Text-only formatting (unchanged)
+    # ──────────────────────────────────────────────────────────────────────
 
     def _format_message_content(
         self, content: Union[ContentBlock, Dict[str, Any]]
     ) -> Dict[str, Any]:
-        """Format a content block for transformers.
-
-        Args:
-            content: Message content.
-
-        Returns:
-            Transformers compatible content block.
-
-        Raises:
-            TypeError: If the content block type cannot be converted to a compatible format.
-        """
+        """Format a content block for transformers (legacy helper)."""
         if "text" in content:
             return {"type": "text", "text": content["text"]}
-
         if "image" in content:
-            # For multimodal models, would need special handling
             return {"type": "image", "image": content["image"]["source"]["bytes"]}
-
         if "toolUse" in content:
             return {
                 "type": "tool_use",
@@ -291,7 +603,6 @@ class TransformerModel(Model):
                 "input": content["toolUse"]["input"],
                 "id": content["toolUse"]["toolUseId"],
             }
-
         if "toolResult" in content:
             return {
                 "type": "tool_result",
@@ -301,7 +612,6 @@ class TransformerModel(Model):
                     for c in content["toolResult"]["content"]
                 ],
             }
-
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
     def _format_messages(
@@ -310,49 +620,20 @@ class TransformerModel(Model):
         system_prompt: Optional[str] = None,
         tool_specs: Optional[list[ToolSpec]] = None,
     ) -> str:
-        """Format messages for transformers using chat template.
-
-        Args:
-            messages: List of message objects to be processed.
-            system_prompt: System prompt to provide context to the model.
-            tool_specs: List of tool specifications to make available to the model.
-
-        Returns:
-            Formatted prompt string ready for tokenization.
-        """
-        # Build chat messages
+        """Format messages for transformers using chat template (text path)."""
         chat_messages = []
-
-        # Add system prompt with tool definitions if provided
         system_content = system_prompt or ""
 
-        # Add tool specifications to system prompt
         if tool_specs:
-            tools_description = (
-                "\n\n# Available Tools\n\nYou have access to the following tools:\n\n"
-            )
-            for tool_spec in tool_specs:
-                tools_description += f"## {tool_spec['name']}\n"
-                tools_description += f"{tool_spec['description']}\n\n"
-                tools_description += f"Parameters: {json.dumps(tool_spec['inputSchema']['json'], indent=2)}\n\n"
-
-            tools_description += (
-                "\nTo use a tool, output:\n"
-                '<tool_call>{"name": "tool_name", "arguments": {"param": "value"}}</tool_call>\n\n'
-                "You will receive the result in:\n"
-                "<tool_response>result</tool_response>\n"
-            )
-            system_content += tools_description
+            system_content += self._tool_specs_to_text(tool_specs)
 
         if system_content:
             chat_messages.append({"role": "system", "content": system_content})
 
-        # Convert Strands messages to chat format
         for message in messages:
             role = message["role"]
             contents = message["content"]
 
-            # Combine text contents
             text_parts = []
             tool_uses = []
             tool_results = []
@@ -364,20 +645,17 @@ class TransformerModel(Model):
                     tool_uses.append(content["toolUse"])
                 elif "toolResult" in content:
                     tool_results.append(content["toolResult"])
+                elif "document" in content:
+                    text_parts.append(_document_to_text(content["document"]))
 
-            # Create message
             if text_parts:
                 chat_messages.append({"role": role, "content": " ".join(text_parts)})
 
-            # Handle tool uses
             if tool_uses:
-                # For now, convert tool uses to text (simplified)
-                # Full implementation would require model-specific formatting
                 for tool_use in tool_uses:
                     tool_text = f"<tool_call>{json.dumps({'name': tool_use['name'], 'arguments': tool_use['input']})}</tool_call>"
                     chat_messages.append({"role": "assistant", "content": tool_text})
 
-            # Handle tool results
             if tool_results:
                 for tool_result in tool_results:
                     result_content = " ".join(
@@ -393,9 +671,7 @@ class TransformerModel(Model):
                     result_text = f"<tool_response>{result_content}</tool_response>"
                     chat_messages.append({"role": "user", "content": result_text})
 
-        # Apply chat template
         if self.is_qwen3 and self.config.get("enable_thinking", True):
-            # Qwen3 with thinking mode
             formatted_prompt = self.tokenizer.apply_chat_template(
                 chat_messages,
                 tokenize=False,
@@ -403,7 +679,6 @@ class TransformerModel(Model):
                 enable_thinking=True,
             )
         else:
-            # Regular chat template
             formatted_prompt = self.tokenizer.apply_chat_template(
                 chat_messages,
                 tokenize=False,
@@ -413,14 +688,7 @@ class TransformerModel(Model):
         return formatted_prompt
 
     def _format_chunk(self, event: Dict[str, Any]) -> StreamEvent:
-        """Format a generation event into a standardized message chunk.
-
-        Args:
-            event: A generation event.
-
-        Returns:
-            The formatted chunk.
-        """
+        """Format a generation event into a standardized message chunk."""
         match event["chunk_type"]:
             case "message_start":
                 return {"messageStart": {"role": "assistant"}}
@@ -493,39 +761,41 @@ class TransformerModel(Model):
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the transformers model.
 
-        Args:
-            messages: List of message objects to be processed by the model.
-            tool_specs: List of tool specifications to make available to the model.
-            system_prompt: System prompt to provide context to the model.
-            tool_choice: Selection strategy for tool invocation. **Note: This parameter is accepted for
-                interface consistency but is currently ignored for this model provider.**
-            **kwargs: Additional keyword arguments for future extensibility.
-
-        Yields:
-            Formatted message chunks from the model.
+        Routes through the multimodal processor path when the model is a VLM
+        and the conversation carries image/video content; otherwise uses the
+        text-only tokenizer path.
         """
         warn_on_tool_choice_not_supported(tool_choice)
 
-        # Track start time
         start_time = time.perf_counter()
 
-        logger.debug("formatting messages")
-        formatted_prompt = self._format_messages(messages, system_prompt, tool_specs)
-        logger.debug(
-            "prompt=<%s>",
-            (
-                formatted_prompt[:200] + "..."
-                if len(formatted_prompt) > 200
-                else formatted_prompt
-            ),
-        )
+        # Decide path: multimodal model + any media present anywhere.
+        use_mm = self.is_multimodal and self._has_media(messages)
 
-        # Tokenize
-        inputs = self.tokenizer([formatted_prompt], return_tensors="pt")
-        inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
-        input_length = inputs["input_ids"].shape[1]
+        logger.debug("formatting messages (multimodal=%s)", use_mm)
 
-        # Get generation parameters
+        if use_mm:
+            model_inputs, input_length = self._prepare_multimodal_inputs(
+                messages, system_prompt, tool_specs
+            )
+        else:
+            formatted_prompt = self._format_messages(
+                messages, system_prompt, tool_specs
+            )
+            logger.debug(
+                "prompt=<%s>",
+                (
+                    formatted_prompt[:200] + "..."
+                    if len(formatted_prompt) > 200
+                    else formatted_prompt
+                ),
+            )
+            inputs = self.tokenizer([formatted_prompt], return_tensors="pt")
+            inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+            model_inputs = inputs
+            input_length = inputs["input_ids"].shape[1]
+
+        # Generation parameters
         params = self.config.get("params", {})
         max_tokens = params.get("max_tokens", 300)
         temperature = params.get("temperature", 1)
@@ -536,19 +806,14 @@ class TransformerModel(Model):
 
         logger.debug("generating with streaming")
 
-        # Create streamer
-        # NOTE: skip_special_tokens=True removes chat template tokens like <|im_end|>
-        # but preserves regular vocabulary tokens like <think> and </think>
+        # Streamer uses the tokenizer (present in both paths)
         streamer = TextIteratorStreamer(
             self.tokenizer,
             skip_prompt=True,
-            skip_special_tokens=True,  # Skip chat template tokens, keep <think> tags
+            skip_special_tokens=True,
         )
 
-        # Generation kwargs
         generation_kwargs = dict(
-            inputs=inputs["input_ids"],
-            attention_mask=inputs["attention_mask"],
             max_new_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
@@ -558,16 +823,15 @@ class TransformerModel(Model):
             pad_token_id=self.tokenizer.eos_token_id,
             streamer=streamer,
         )
+        # Feed model inputs (input_ids/attention_mask [+ pixel_values, ...])
+        generation_kwargs.update(model_inputs)
 
-        # Start generation in thread
         thread = Thread(target=self.model.generate, kwargs=generation_kwargs)
         thread.start()
 
-        # Yield events
         yield self._format_chunk({"chunk_type": "message_start"})
         yield self._format_chunk({"chunk_type": "content_start"})
 
-        # Stream tokens
         thinking_mode = False
         tool_call_mode = False
         tool_requested = False
@@ -576,37 +840,28 @@ class TransformerModel(Model):
         output_buffer = ""
 
         for new_text in streamer:
-            # Check for tool call markers
             if "<tool_call>" in new_text:
-                # Entering tool call mode
                 tool_call_mode = True
                 tool_requested = True
                 parts = new_text.split("<tool_call>", 1)
                 if parts[0]:
-                    # Yield any text before tool call
                     yield self._format_chunk(
                         {"chunk_type": "content_delta", "data": parts[0]}
                     )
                     output_buffer += parts[0]
-                # Close text content block
                 yield self._format_chunk({"chunk_type": "content_stop"})
                 if len(parts) > 1:
                     tool_call_buffer = parts[1]
                 continue
 
-            # Check if we're exiting tool call mode
             if tool_call_mode and "</tool_call>" in new_text:
                 tool_call_mode = False
                 parts = new_text.split("</tool_call>", 1)
                 tool_call_buffer += parts[0]
-
-                # Parse and emit tool call
                 try:
                     tool_call_data = json.loads(tool_call_buffer)
                     tool_name = tool_call_data.get("name", "unknown")
                     tool_arguments = tool_call_data.get("arguments", {})
-
-                    # Emit tool use events
                     yield self._format_chunk(
                         {
                             "chunk_type": "content_start",
@@ -623,19 +878,13 @@ class TransformerModel(Model):
                         }
                     )
                     yield self._format_chunk(
-                        {
-                            "chunk_type": "content_stop",
-                            "data_type": "tool",
-                        }
+                        {"chunk_type": "content_stop", "data_type": "tool"}
                     )
                 except json.JSONDecodeError as e:
                     logger.warning(
                         f"Failed to parse tool call: {e}, buffer: {tool_call_buffer}"
                     )
-
                 tool_call_buffer = ""
-
-                # Start new content block for remaining text
                 if len(parts) > 1 and parts[1]:
                     yield self._format_chunk({"chunk_type": "content_start"})
                     yield self._format_chunk(
@@ -644,14 +893,11 @@ class TransformerModel(Model):
                     output_buffer += parts[1]
                 continue
 
-            # Accumulate in tool call buffer if in tool call mode
             if tool_call_mode:
                 tool_call_buffer += new_text
                 continue
 
-            # Check for thinking mode markers (Qwen3)
             if self.is_qwen3 and self.config.get("enable_thinking", True):
-                # Check if we're entering thinking mode
                 if "<think>" in new_text:
                     thinking_mode = True
                     parts = new_text.split("<think>", 1)
@@ -664,12 +910,10 @@ class TransformerModel(Model):
                         thinking_buffer = parts[1]
                     continue
 
-                # Check if we're exiting thinking mode
                 if thinking_mode and "</think>" in new_text:
                     thinking_mode = False
                     parts = new_text.split("</think>", 1)
                     thinking_buffer += parts[0]
-                    # Yield thinking content as reasoning
                     if thinking_buffer:
                         yield self._format_chunk(
                             {
@@ -686,7 +930,6 @@ class TransformerModel(Model):
                         output_buffer += parts[1]
                     continue
 
-                # Accumulate in appropriate buffer
                 if thinking_mode:
                     thinking_buffer += new_text
                     yield self._format_chunk(
@@ -702,7 +945,6 @@ class TransformerModel(Model):
                         {"chunk_type": "content_delta", "data": new_text}
                     )
             else:
-                # Regular streaming without thinking mode
                 output_buffer += new_text
                 yield self._format_chunk(
                     {"chunk_type": "content_delta", "data": new_text}
@@ -718,7 +960,6 @@ class TransformerModel(Model):
             }
         )
 
-        # Calculate metrics
         latency_ms = int((time.perf_counter() - start_time) * 1000)
         output_tokens = len(
             self.tokenizer.encode(
@@ -737,6 +978,19 @@ class TransformerModel(Model):
 
         logger.debug("finished streaming response from model")
 
+    @staticmethod
+    def _has_media(messages: Messages) -> bool:
+        """Return True if any message carries image/video content (incl. tool results)."""
+        for message in messages:
+            for content in message.get("content", []):
+                if "image" in content or "video" in content:
+                    return True
+                if "toolResult" in content:
+                    for c in content["toolResult"].get("content", []):
+                        if "image" in c or "video" in c:
+                            return True
+        return False
+
     @override
     async def structured_output(
         self,
@@ -745,27 +999,11 @@ class TransformerModel(Model):
         system_prompt: Optional[str] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[Dict[str, Union[T, Any]], None]:
-        """Get structured output from the model.
-
-        This implementation uses the model's generation with JSON schema guidance
-        if supported, or falls back to prompt engineering.
-
-        Args:
-            output_model: The Pydantic model defining the expected output structure.
-            prompt: The prompt messages to use for generation.
-            system_prompt: System prompt to provide context to the model.
-            **kwargs: Additional keyword arguments for future extensibility.
-
-        Yields:
-            Model events with the last being the structured output.
-        """
-        # Add JSON schema instruction to system prompt
+        """Get structured output from the model (prompt-engineered JSON)."""
         schema = output_model.model_json_schema()
         json_instruction = f"\n\nPlease respond with valid JSON matching this schema:\n{json.dumps(schema, indent=2)}"
-
         augmented_system_prompt = (system_prompt or "") + json_instruction
 
-        # Collect the response
         response_text = ""
         async for event in self.stream(
             prompt, system_prompt=augmented_system_prompt, **kwargs
@@ -774,10 +1012,8 @@ class TransformerModel(Model):
                 delta = event["contentBlockDelta"]["delta"]
                 if "text" in delta:
                     response_text += delta["text"]
-            # Forward events to caller
             yield cast(Dict[str, Union[T, Any]], event)
 
-        # Parse and validate the JSON response
         try:
             data = json.loads(_extract_json(response_text))
             output_instance = output_model(**data)
