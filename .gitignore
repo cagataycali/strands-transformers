@@ -8,3 +8,6 @@ sessions
 *.egg-info
 system_prompt.prompt
 site/
+strands_transformers/_version.py
+dist/
+build/

@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "wheel", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "strands-transformers"
-version = "0.2.0"
+dynamic = ["version"]
 description = "The universal entrypoint to HuggingFace transformers for Strands agents — 100% task & modality coverage, zero hardcoding."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -52,6 +52,12 @@ Issues = "https://github.com/cagataycali/strands-transformers/issues"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["strands_transformers*"]
+
+[tool.setuptools_scm]
+write_to = "strands_transformers/_version.py"
+# Tags look like vX.Y.Z; fall back to 0.0.0 for untagged checkouts.
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
 
 [tool.ruff]
 line-length = 100

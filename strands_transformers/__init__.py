@@ -19,7 +19,10 @@ Quick start:
     agent = Agent(model=model, tools=[use_transformers])
 """
 
-__version__ = "0.2.0"
+try:
+    from strands_transformers._version import version as __version__
+except Exception:  # not built / no tags yet
+    __version__ = "0.0.0"
 
 from strands_transformers.core import engine, io, registry
 from strands_transformers.tools.use_transformers import use_transformers

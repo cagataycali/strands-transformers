@@ -5,6 +5,8 @@ Requires Python 3.10+. We recommend [uv](https://docs.astral.sh/uv/).
 === "uv"
 
     ```bash
+    uv pip install strands-transformers   # from PyPI
+    # from source:
     uv pip install -e .
     # optional extras:
     uv pip install -e ".[audio]"      # soundfile, librosa  (mp3/flac/ogg decode)
@@ -17,6 +19,8 @@ Requires Python 3.10+. We recommend [uv](https://docs.astral.sh/uv/).
 === "pip"
 
     ```bash
+    pip install strands-transformers      # from PyPI
+    # from source:
     pip install -e .
     pip install -e ".[audio]"
     pip install -e ".[vision]"
@@ -43,3 +47,24 @@ PYTHONPATH=. python examples/smoke.py     # → "12/12 checks passed"
 
 !!! tip "Device selection"
     `device="auto"` (the default) picks **cuda → mps → cpu**, and uses bf16 on GPU.
+
+
+## Releasing (maintainers)
+
+Versioning is derived from git tags via
+[setuptools-scm](https://setuptools-scm.readthedocs.io/) — there is **no hardcoded
+version**. To cut a release, just tag and push:
+
+```bash
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+The `Release` workflow then builds the sdist + wheel (the version comes from the
+tag), publishes to PyPI via **Trusted Publishing** (OIDC — no API token stored),
+and creates a GitHub Release with auto-generated notes.
+
+!!! note "One-time PyPI setup"
+    Configure a [Trusted Publisher](https://docs.pypi.org/trusted-publishers/) on
+    PyPI for this repo + the `Release` workflow, and create a `pypi` environment
+    in the repo settings. After that, releases are fully automated from tags.

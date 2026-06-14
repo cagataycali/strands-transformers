@@ -4,6 +4,7 @@
   <p><b>Agents that see, hear, and speak — 100% task coverage, zero hardcoding, fully local.</b></p>
 
   <div>
+    <a href="https://pypi.org/project/strands-transformers/"><img alt="pypi" src="https://img.shields.io/pypi/v/strands-transformers"/></a>
     <a href="https://github.com/cagataycali/strands-transformers/actions/workflows/docs.yml"><img alt="docs" src="https://github.com/cagataycali/strands-transformers/actions/workflows/docs.yml/badge.svg"/></a>
     <a href="https://github.com/cagataycali/strands-transformers/issues"><img alt="issues" src="https://img.shields.io/github/issues/cagataycali/strands-transformers"/></a>
     <img alt="python" src="https://img.shields.io/badge/python-3.10+-blue"/>
@@ -43,8 +44,10 @@ flowchart LR
 ## Install
 
 ```bash
-uv pip install -e .            # or: pip install -e .
-PYTHONPATH=. python examples/smoke.py     # verify → "12/12 checks passed"
+uv pip install strands-transformers        # from PyPI
+# or from source:
+uv pip install -e .                         # or: pip install -e .
+PYTHONPATH=. python examples/smoke.py       # verify → "12/12 checks passed"
 ```
 
 <details>
