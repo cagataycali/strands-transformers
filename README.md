@@ -4,6 +4,7 @@
   <p><b>Agents that see, hear, and speak — 100% task coverage, zero hardcoding, fully local.</b></p>
 
   <div>
+    <a href="https://github.com/cagataycali/strands-transformers/actions/workflows/docs.yml"><img alt="docs" src="https://github.com/cagataycali/strands-transformers/actions/workflows/docs.yml/badge.svg"/></a>
     <a href="https://github.com/cagataycali/strands-transformers/issues"><img alt="issues" src="https://img.shields.io/github/issues/cagataycali/strands-transformers"/></a>
     <img alt="python" src="https://img.shields.io/badge/python-3.10+-blue"/>
     <img alt="transformers" src="https://img.shields.io/badge/🤗_transformers-24_tasks-yellow"/>
