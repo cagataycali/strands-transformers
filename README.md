@@ -342,7 +342,6 @@ strands_transformers/
     └── compat.py               # shims so 4.x-era custom-code models run on 5.x
 ```
 
-
 | Layer | File | Responsibility |
 |-------|------|----------------|
 | **Registry** | `core/registry.py` | Reads transformers' task taxonomy → modality → AutoModel. Dynamic class/fn resolution. |
