@@ -18,6 +18,7 @@ PYTHONPATH=. python examples/<name>.py
 | `multimodal_pipelines.py` | tool | text/image/audio pipelines + ASR round-trip |
 | `vision_tasks.py` | tool | detection, embeddings, depth, segmentation |
 | `cosmos_reason_embodied.py` | tool | Cosmos-Reason2 embodied scene reasoning |
+| `robot_reason_act_agent.py` | tool | two-step robot agent: Cosmos-Reason plans → MolmoAct acts |
 | `molmoact_vla.py` | tool | VLA robot actions `[1,30,6]` |
 | `openvla_vla.py` | tool | 7-DoF VLA + legacy compat |
 | `local_model_agent.py` | brain | local causal-LM brain + tool |

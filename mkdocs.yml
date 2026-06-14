@@ -47,6 +47,7 @@ nav:
       - Content blocks & modalities: guide/content-blocks.md
       - Audio (in & out): guide/audio.md
       - Robotics / VLA: guide/robotics.md
+      - Agentic robot loop: guide/agentic-robot.md
       - Legacy model compatibility: guide/compat.md
   - Reference:
       - Architecture: reference/architecture.md

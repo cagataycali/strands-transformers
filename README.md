@@ -151,6 +151,10 @@ Two layers, both transformers-native and GPU-verified:
   [MolmoAct2](https://huggingface.co/allenai/MolmoAct2-SO100_101) → `[1,30,6]`;
   [OpenVLA-7b](https://huggingface.co/openvla/openvla-7b) → 7-DoF (auto 4.x→5.x shims).
 
+🔗 **Full agentic loop** ([`examples/robot_reason_act_agent.py`](examples/robot_reason_act_agent.py)):
+Cosmos-Reason *plans* over real RealSense frames → MolmoAct *acts* (`[1,30,6]`) —
+perception→plan→action through one tool.
+
 Lerobot-ecosystem policies (SmolVLA, π0, ACT, GR00T) use their own runtimes —
 pair with `use_lerobot`.
 → **[Robotics guide](https://cagataycali.github.io/strands-transformers/guide/robotics/)**

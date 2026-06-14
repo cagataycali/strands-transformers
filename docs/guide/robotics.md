@@ -21,6 +21,11 @@ flowchart LR
     class OUT out;
 ```
 
+!!! tip "See the full loop"
+    Want perception → plan → action wired end-to-end? See
+    **[Agentic robot loop](agentic-robot.md)** — Cosmos-Reason plans, MolmoAct acts,
+    on real camera images.
+
 ## Model landscape (today)
 
 | Model | Kind | Loads via | Layer |
