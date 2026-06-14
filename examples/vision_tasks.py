@@ -48,10 +48,33 @@ def demo_image_classification():
     )
 
 
+def demo_depth_estimation():
+    # dense image output → depth map saved as a PNG artifact
+    return use_transformers(
+        action="run",
+        task="depth-estimation",
+        model="Intel/dpt-hybrid-midas",
+        inputs=_img(4, size=(96, 96)),
+        label="depth-estimation",
+    )
+
+
+def demo_image_segmentation():
+    return use_transformers(
+        action="run",
+        task="image-segmentation",
+        model="facebook/detr-resnet-50-panoptic",
+        inputs=_img(5, size=(96, 96)),
+        label="image-segmentation",
+    )
+
+
 DEMOS = {
     "object-detection": demo_object_detection,
     "image-feature-extraction": demo_image_feature_extraction,
     "image-classification": demo_image_classification,
+    "depth-estimation": demo_depth_estimation,
+    "image-segmentation": demo_image_segmentation,
 }
 
 
