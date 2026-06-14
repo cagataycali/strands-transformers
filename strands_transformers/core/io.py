@@ -213,7 +213,11 @@ def _maybe_array(obj: Any) -> Optional[Any]:
     try:
         import torch
         if isinstance(obj, torch.Tensor):
-            obj = obj.detach().cpu().numpy()
+            obj = obj.detach().cpu()
+            # numpy has no bfloat16/float16-on-some-ops support → upcast first
+            if obj.dtype in (torch.bfloat16, torch.float16):
+                obj = obj.to(torch.float32)
+            obj = obj.numpy()
     except ImportError:
         pass
     try:

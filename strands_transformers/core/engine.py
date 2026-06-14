@@ -70,7 +70,15 @@ def get_pipeline(task: str, model: Optional[str] = None,
         kwargs["device"] = "mps"
     else:
         kwargs["device"] = -1
-    dtype = select_dtype(dev)
+    # Tasks whose post-processing produces images/dense maps need float32 — half
+    # precision (bf16/fp16) breaks PIL/numpy conversion ("unsupported ScalarType
+    # BFloat16"). Skip the half-precision default for those; callers can still
+    # override via pipeline_kwargs.
+    _FLOAT32_TASKS = {
+        "depth-estimation", "image-segmentation", "image-to-image",
+        "semantic-segmentation", "instance-segmentation", "mask-generation",
+    }
+    dtype = None if task in _FLOAT32_TASKS else select_dtype(dev)
     if dtype is not None:
         kwargs["dtype"] = dtype
     kwargs.update(pipeline_kwargs)
