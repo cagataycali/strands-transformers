@@ -8,9 +8,9 @@ PRs welcome.
 
 1. **Real, runnable examples.** Add to `examples/` and drive actual inference —
    no mocks. Show the verified output.
-2. **Keep `smoke.py` green.** It's the fast 12-check E2E gate:
+2. **Keep `smoke.py` green.** It's the fast E2E gate:
    ```bash
-   PYTHONPATH=. python examples/smoke.py     # → "12/12 checks passed"
+   PYTHONPATH=. python examples/smoke.py     # → "16/16 checks passed"
    ```
 3. **Verify claims.** Any number/output in docs must come from a real run.
 

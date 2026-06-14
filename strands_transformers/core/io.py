@@ -24,27 +24,35 @@ ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ───────────────────────── INPUT COERCION ─────────────────────────
 
-def coerce_input(value: Any) -> Any:
+def coerce_input(value: Any, _depth: int = 0) -> Any:
     """Best-effort coercion of an input spec into something a pipeline accepts.
 
     Pipelines already accept paths/URLs/PIL/arrays natively, so mostly we just
     decode base64 data URIs and pass everything else through untouched.
+
+    A depth guard prevents RecursionError on pathologically/maliciously nested
+    structures (returns the value untouched past the cap).
     """
+    if _depth > 32:
+        return value
     if isinstance(value, str):
         if value.startswith("data:"):
             return _decode_data_uri(value)
         return value  # path / URL / text — pipelines handle these
     if isinstance(value, list):
-        return [coerce_input(v) for v in value]
+        return [coerce_input(v, _depth + 1) for v in value]
     if isinstance(value, dict):
-        return {k: coerce_input(v) for k, v in value.items()}
+        return {k: coerce_input(v, _depth + 1) for k, v in value.items()}
     return value
 
 
 def _decode_data_uri(uri: str) -> Any:
     """Decode a data: URI into a PIL Image / bytes depending on mime."""
     header, _, b64 = uri.partition(",")
-    raw = base64.b64decode(b64)
+    try:
+        raw = base64.b64decode(b64, validate=False)
+    except Exception as e:
+        raise ValueError(f"Malformed base64 in data URI: {e}") from None
     mime = header.split(";")[0].removeprefix("data:")
     if mime.startswith("image/"):
         from PIL import Image
@@ -72,12 +80,16 @@ def decode_wav(path: str):
     except Exception:
         return None
 
-    dtype = {1: np.int8, 2: np.int16, 4: np.int32}.get(sampwidth)
-    if dtype is None:
-        return None
-    arr = np.frombuffer(raw, dtype=dtype).astype(np.float32)
-    max_val = float(np.iinfo(dtype).max)
-    arr = arr / max_val
+    # NB: per the WAV spec, 8-bit PCM is UNSIGNED (0..255, silence at 128);
+    # 16/32-bit are signed. Decode each correctly to float32 in [-1, 1].
+    if sampwidth == 1:
+        arr = (np.frombuffer(raw, dtype=np.uint8).astype(np.float32) - 128.0) / 128.0
+    else:
+        dtype = {2: np.int16, 4: np.int32}.get(sampwidth)
+        if dtype is None:
+            return None
+        arr = np.frombuffer(raw, dtype=dtype).astype(np.float32)
+        arr = arr / float(np.iinfo(dtype).max)
     if n_channels > 1:
         arr = arr.reshape(-1, n_channels).mean(axis=1)  # downmix to mono
     return arr, sr
@@ -159,6 +171,17 @@ def _serialize(obj: Any, artifacts: List[str], save: bool, depth: int = 0) -> An
     if obj is None or isinstance(obj, (str, int, float, bool)):
         return obj
 
+    # Raw bytes → base64 (recoverable + JSON-safe, never a lossy repr string)
+    if isinstance(obj, (bytes, bytearray)):
+        import base64
+        data = bytes(obj)
+        return {
+            "type": "bytes",
+            "encoding": "base64",
+            "size": len(data),
+            "data": base64.b64encode(data).decode("ascii"),
+        }
+
     # Audio dict from TTS pipelines: {"audio": ndarray, "sampling_rate": int}
     if isinstance(obj, dict) and "audio" in obj and "sampling_rate" in obj:
         if save:
@@ -184,13 +207,19 @@ def _serialize(obj: Any, artifacts: List[str], save: bool, depth: int = 0) -> An
     if arr is not None:
         return arr
 
-    # Mappings & sequences
+    # Mappings & sequences (cap breadth so a pathologically large pipeline result
+    # can't produce an unbounded JSON payload; mirrors the list/set cap of 200).
+    _MAX_ITEMS = 200
     if isinstance(obj, dict):
-        return {str(k): _serialize(v, artifacts, save, depth + 1) for k, v in obj.items()}
+        items = list(obj.items())
+        out = {str(k): _serialize(v, artifacts, save, depth + 1) for k, v in items[:_MAX_ITEMS]}
+        if len(items) > _MAX_ITEMS:
+            out["__truncated__"] = f"{len(items) - _MAX_ITEMS} more keys omitted"
+        return out
     if isinstance(obj, (list, tuple)):
-        return [_serialize(v, artifacts, save, depth + 1) for v in obj[:200]]
+        return [_serialize(v, artifacts, save, depth + 1) for v in obj[:_MAX_ITEMS]]
     if isinstance(obj, (set, frozenset)):
-        return [_serialize(v, artifacts, save, depth + 1) for v in list(obj)[:200]]
+        return [_serialize(v, artifacts, save, depth + 1) for v in list(obj)[:_MAX_ITEMS]]
 
     # Objects with __dict__ (e.g. ModelOutput) → try dict-like
     if hasattr(obj, "to_dict"):
@@ -258,6 +287,9 @@ def _write_wav_stdlib(path: str, audio, sampling_rate: int) -> None:
     import numpy as np
 
     a = np.asarray(audio, dtype=np.float32)
+    # Sanitize NaN/Inf (→ 0 / ±1) before the int16 cast, which is otherwise
+    # undefined and emits "invalid value encountered in cast" + garbage samples.
+    a = np.nan_to_num(a, nan=0.0, posinf=1.0, neginf=-1.0)
     a = np.clip(a, -1.0, 1.0)
     pcm = (a * 32767).astype(np.int16)
     with wave.open(path, "wb") as w:
@@ -269,5 +301,21 @@ def _write_wav_stdlib(path: str, audio, sampling_rate: int) -> None:
 
 def _save_image(image) -> str:
     path = ARTIFACT_DIR / f"image_{int(time.time()*1000)}.png"
+    # PNG can't store CMYK / float (F) / some int modes. Normalize so saving a
+    # depth map / segmentation mask / odd-mode image never crashes.
+    mode = getattr(image, "mode", "RGB")
+    if mode not in ("RGB", "RGBA", "L", "LA", "P", "I", "1"):
+        try:
+            import numpy as np
+            if mode == "F":
+                # float map → normalize to 8-bit grayscale for a viewable PNG
+                a = np.asarray(image, dtype=np.float32)
+                rng = float(a.max() - a.min())
+                a = ((a - a.min()) / rng * 255.0) if rng > 0 else np.zeros_like(a)
+                image = Image.fromarray(a.astype("uint8"), mode="L")
+            else:
+                image = image.convert("RGB")
+        except Exception:
+            image = image.convert("RGB")
     image.save(str(path))
     return str(path)

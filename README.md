@@ -47,7 +47,7 @@ flowchart LR
 uv pip install strands-transformers        # from PyPI
 # or from source:
 uv pip install -e .                         # or: pip install -e .
-PYTHONPATH=. python examples/smoke.py       # verify → "12/12 checks passed"
+PYTHONPATH=. python examples/smoke.py       # verify → "16/16 checks passed"
 ```
 
 <details>

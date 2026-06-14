@@ -22,7 +22,7 @@ PYTHONPATH=. python examples/<name>.py
 | `molmoact_vla.py` | tool | VLA robot actions `[1,30,6]` |
 | `openvla_vla.py` | tool | 7-DoF VLA + legacy compat |
 | `local_model_agent.py` | brain | local causal-LM brain + tool |
-| `smoke.py` | — | fast 12-check E2E gate (no big downloads) |
+| `smoke.py` | — | fast E2E gate (no big downloads) |
 
 - **brain** = uses `TransformerModel` as the agent's model provider.
 - **tool** = uses `use_transformers` as a tool the agent calls.

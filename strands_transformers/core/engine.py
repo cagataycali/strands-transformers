@@ -33,11 +33,14 @@ def select_device(device: Optional[str] = None) -> str:
 
 
 def select_dtype(device: str):
-    """Pick a sensible default dtype for the device."""
+    """Pick a sensible default dtype for the device (handles cuda:N / mps)."""
     try:
         import torch
-        if device in ("cuda", "mps"):
-            return torch.bfloat16 if device == "cuda" else torch.float16
+        dev = str(device)
+        if dev.startswith("cuda"):
+            return torch.bfloat16
+        if dev.startswith("mps"):
+            return torch.float16
     except ImportError:
         pass
     return None  # let transformers decide (float32 on cpu)
@@ -63,10 +66,13 @@ def get_pipeline(task: str, model: Optional[str] = None,
     kwargs: Dict[str, Any] = {"task": task}
     if model:
         kwargs["model"] = model
-    # device handling: pipeline takes device int/str or device_map
+    # device handling: pipeline takes device int/str or device_map.
+    # Honor explicit cuda:N (e.g. multi-GPU) instead of silently falling to CPU.
     if dev == "cuda":
         kwargs["device"] = 0
-    elif dev == "mps":
+    elif dev.startswith("cuda:"):
+        kwargs["device"] = dev               # transformers parses "cuda:1"
+    elif dev.startswith("mps"):
         kwargs["device"] = "mps"
     else:
         kwargs["device"] = -1

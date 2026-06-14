@@ -30,10 +30,10 @@ Requires Python 3.10+. We recommend [uv](https://docs.astral.sh/uv/).
 
 ## Verify your install
 
-Fast, no big downloads — 12 real checks:
+Fast, no big downloads — 16 real checks:
 
 ```bash
-PYTHONPATH=. python examples/smoke.py     # → "12/12 checks passed"
+PYTHONPATH=. python examples/smoke.py     # → "16/16 checks passed"
 ```
 
 ## Optional extras

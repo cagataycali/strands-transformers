@@ -65,14 +65,37 @@ def task_info(task: str) -> Optional[Dict[str, Any]]:
     return supported_tasks().get(task)
 
 
+@lru_cache(maxsize=1)
+def task_aliases() -> Dict[str, str]:
+    """Official transformers pipeline task aliases (read at runtime, not hardcoded).
+
+    e.g. sentiment-analysis → text-classification, ner → token-classification.
+    """
+    try:
+        from transformers.pipelines import TASK_ALIASES
+        return dict(TASK_ALIASES)
+    except Exception:
+        return {}
+
+
 def resolve_task(task_or_alias: str) -> Optional[str]:
-    """Resolve a task name, tolerating underscores/spaces vs hyphens."""
+    """Resolve a task name, tolerating underscores/spaces vs hyphens and
+    honoring transformers' own pipeline aliases (sentiment-analysis, ner, ...)."""
     tasks = supported_tasks()
     if task_or_alias in tasks:
         return task_or_alias
     norm = task_or_alias.replace("_", "-").replace(" ", "-").lower()
     if norm in tasks:
         return norm
+    # transformers' own aliases (may themselves need normalization to canonical)
+    aliases = task_aliases()
+    target = aliases.get(task_or_alias) or aliases.get(norm)
+    if target:
+        if target in tasks:
+            return target
+        tnorm = target.replace("_", "-").lower()
+        if tnorm in tasks:
+            return tnorm
     return None
 
 

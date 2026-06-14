@@ -42,6 +42,43 @@ def run() -> int:
         )
     )
 
+    # ── regression guards (no downloads) ──
+    from strands_transformers.core import registry, io
+
+    results.append(
+        check(
+            "task alias resolves (sentiment-analysis → text-classification)",
+            {"status": "success" if registry.resolve_task("sentiment-analysis") == "text-classification" else "error",
+             "content": [{"text": "alias resolution"}]},
+        )
+    )
+
+    import base64
+    _b = io.serialize_output(b"\x00\x01hi", save_artifacts=False)["result"]
+    results.append(
+        check(
+            "bytes serialize as recoverable base64",
+            {"status": "success" if (isinstance(_b, dict) and _b.get("encoding") == "base64"
+                                     and base64.b64decode(_b["data"]) == b"\x00\x01hi") else "error",
+             "content": [{"text": "bytes base64 roundtrip"}]},
+        )
+    )
+
+    import tempfile, wave, os
+    import numpy as _np
+    _p = tempfile.mktemp(suffix=".wav")
+    with wave.open(_p, "wb") as _w:
+        _w.setnchannels(1); _w.setsampwidth(1); _w.setframerate(16000)
+        _w.writeframes(_np.full(800, 128, dtype=_np.uint8).tobytes())  # 8-bit silence
+    _dec = io.decode_wav(_p); os.remove(_p)
+    results.append(
+        check(
+            "8-bit WAV silence decodes to ~0.0 (unsigned PCM)",
+            {"status": "success" if (_dec is not None and abs(float(_dec[0][0])) < 0.01) else "error",
+             "content": [{"text": "8-bit wav decode"}]},
+        )
+    )
+
     # ── tiny pipelines (small downloads, fast) ──
     results.append(
         check(
@@ -111,6 +148,31 @@ def run() -> int:
                 ),
             )
         )
+
+    # ── registry invariant: every task is bucketed in exactly one modality ──
+    _mods = registry.tasks_by_modality()
+    _all_tasks = set(registry.supported_tasks())
+    _bucketed = set().union(*_mods.values()) if _mods else set()
+    results.append(
+        check(
+            "every task bucketed into a modality",
+            {"status": "success" if _bucketed == _all_tasks else "error",
+             "content": [{"text": f"missing={_all_tasks - _bucketed} phantom={_bucketed - _all_tasks}"}]},
+        )
+    )
+
+    # ── cache behavior guard ──
+    from strands_transformers.core import engine as _eng
+    _key = "pipe::text-classification::hf-internal-testing/tiny-random-distilbert"
+    use_transformers(action="run", task="text-classification",
+                     model="hf-internal-testing/tiny-random-distilbert", inputs="x")
+    results.append(
+        check(
+            "pipeline is cached after run",
+            {"status": "success" if _key in _eng._CACHE else "error",
+             "content": [{"text": "pipeline cache"}]},
+        )
+    )
 
     passed = sum(results)
     total = len(results)

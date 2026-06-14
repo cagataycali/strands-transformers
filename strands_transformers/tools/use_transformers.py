@@ -241,6 +241,25 @@ def use_transformers(
                 return _err("Provide `target` (e.g. 'AutoModelForImageTextToText.from_pretrained').")
             _ensure("transformers")
             _apply_compat()
+            # AutoX.from_pretrained gets the engine's smart device/dtype defaults
+            # (auto cuda/mps/cpu + bf16, trust_remote_code) via load_object —
+            # explicit user params always win. Other targets stay fully raw.
+            if (not target.startswith("cached:") and target.endswith(".from_pretrained")
+                    and params.get("pretrained_model_name_or_path") is not None):
+                auto_class = target[: -len(".from_pretrained")]
+                model_path = params["pretrained_model_name_or_path"]
+                extra = {k: _coerce_param(v) for k, v in params.items()
+                         if k != "pretrained_model_name_or_path"}
+                obj_loaded, _ = engine.load_object(auto_class, model_path,
+                                                   cache_key=cache_key, **extra)
+                if cache_key:
+                    return _ok(f"✅ {target}() → cached as '{cache_key}' "
+                               f"({type(obj_loaded).__name__})",
+                               data={"cached": cache_key, "type": type(obj_loaded).__name__})
+                out = io.serialize_output(obj_loaded, save_artifacts=save_artifacts)
+                return _ok(f"✅ {target}() → {type(obj_loaded).__name__}",
+                           data=out.get("result"), artifacts=out.get("artifacts", []))
+
             obj = _resolve_target(target)
             if not callable(obj):
                 return _ok(f"📋 {target} = {str(obj)[:500]}", data=str(obj)[:2000])
@@ -284,7 +303,14 @@ def use_transformers(
         except Exception:
             pass
         return _err(f"❌ TypeError: {e}{hint}")
+    except (AttributeError, ImportError, ValueError, KeyError,
+            FileNotFoundError, OSError) as e:
+        # Benign user-input errors (bad target/task/params) — return cleanly
+        # without spamming a full traceback to the logs.
+        logger.debug("use_transformers(%s) input error: %s", action, e)
+        return _err(f"❌ {type(e).__name__}: {e}")
     except Exception as e:
+        # Genuinely unexpected — keep the full traceback for debugging.
         logger.error("use_transformers(%s) failed: %s", action, e, exc_info=True)
         return _err(f"❌ {type(e).__name__}: {e}\n\n{traceback.format_exc()[-800:]}")
 
@@ -342,8 +368,12 @@ def _prepare_run_inputs(inputs: Any, params: Dict[str, Any], task: str = ""):
     """
     kwargs = {k: io.coerce_input(v) for k, v in params.items()}
 
-    # Pre-decode WAV paths for audio tasks → positional {"raw","sampling_rate"}.
-    if "audio" in task or "speech" in task:
+    # Pre-decode WAV paths for audio-INPUT tasks → positional {"raw","sampling_rate"}.
+    # Exclude generative audio-OUTPUT tasks (text-to-audio/-speech) whose input is text.
+    _audio_input_task = (
+        ("audio" in task or "speech" in task) and not task.startswith("text-to-")
+    )
+    if _audio_input_task:
         decoded = io.maybe_decode_audio_path(inputs)
         if decoded is not None:
             return [decoded], kwargs

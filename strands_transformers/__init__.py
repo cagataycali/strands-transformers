@@ -20,9 +20,15 @@ Quick start:
 """
 
 try:
+    # Written by setuptools-scm at build time (from the git tag).
     from strands_transformers._version import version as __version__
-except Exception:  # not built / no tags yet
-    __version__ = "0.0.0"
+except Exception:
+    try:
+        # Installed-but-no-_version (rare) → ask importlib.metadata.
+        from importlib.metadata import version as _pkg_version
+        __version__ = _pkg_version("strands-transformers")
+    except Exception:
+        __version__ = "0.0.0+unknown"
 
 from strands_transformers.core import engine, io, registry
 from strands_transformers.tools.use_transformers import use_transformers

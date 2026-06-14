@@ -232,20 +232,23 @@ def _decode_audio(payload: Any, sampling_rate: Optional[int]) -> Optional[Tuple[
     # raw container bytes
     if isinstance(payload, (bytes, bytearray)):
         data = bytes(payload)
-        # stdlib WAV (no ffmpeg needed)
+        # stdlib WAV (no ffmpeg needed). Reuse the package WAV decoder, which
+        # correctly handles 8-bit (unsigned) / 16-bit / 32-bit PCM + downmix.
         try:
             import io as _io
-            import wave
+            import tempfile as _tf
+            import os as _os
+            from strands_transformers.core.io import decode_wav as _decode_wav
 
-            with wave.open(_io.BytesIO(data), "rb") as wf:
-                sr = wf.getframerate()
-                n = wf.getnframes()
-                ch = wf.getnchannels()
-                raw = wf.readframes(n)
-            wav = np.frombuffer(raw, dtype=np.int16).astype("float32") / 32768.0
-            if ch > 1:
-                wav = wav.reshape(-1, ch).mean(axis=1)
-            return wav, sr
+            with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as _f:
+                _f.write(data)
+                _wp = _f.name
+            try:
+                decoded = _decode_wav(_wp)
+            finally:
+                _os.unlink(_wp)
+            if decoded is not None:
+                return decoded  # (mono float32 wav, sr)
         except Exception:
             pass
         # soundfile fallback (mp3/flac/ogg)
