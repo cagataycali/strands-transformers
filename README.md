@@ -124,6 +124,18 @@ HF vision-language model and it just works.
 
 ## ⭐ Multimodal agent brain (`TransformerModel`)
 
+```
+        content blocks                TransformerModel                 out
+   ┌───────────────────────┐      ┌──────────────────────┐     ┌──────────────┐
+   │ text                  │      │  auto-detect:        │     │ text          │
+   │ image  {format,bytes} │ ───▶ │   tokenizer (text)   │ ──▶ │ + reasoning   │
+   │ video  {fps,frames}   │      │   AutoProcessor (👁) │     │   (<think>)   │
+   │ audio  {bytes,sr}     │      │   feature_extr. (🔊) │     │ + tool calls  │
+   │ document {bytes}      │      │   Omni Thinker+Talker│     │ + speech 🔊   │
+   │ toolResult(image/…)   │      └──────────────────────┘     │   (Omni)      │
+   └───────────────────────┘         standard Strands loop     └──────────────┘
+```
+
 Make a **local** HuggingFace model the agent's reasoning engine. The provider
 implements the full Strands content-block taxonomy — text, image, video,
 document — and adds an `audio` block for audio-native models. No servers, no API
