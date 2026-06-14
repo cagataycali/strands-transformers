@@ -12,6 +12,7 @@ end-to-end quickly:
   • text-classification    (text → label)
   • image-classification   (image → labels)
   • zero-shot-classification (text + candidate labels → ranked labels)
+  • text-to-audio          (text → speech .wav artifact)
 
 Run directly:   python examples/multimodal_pipelines.py
 """
@@ -67,11 +68,23 @@ def demo_zero_shot():
     )
 
 
+def demo_text_to_audio():
+    # text → speech; the waveform is written to a .wav and returned in `artifacts`
+    return use_transformers(
+        action="run",
+        task="text-to-audio",
+        model="hf-internal-testing/tiny-random-VitsModel",
+        inputs="hello from strands",
+        label="tiny text-to-audio",
+    )
+
+
 DEMOS = {
     "text-generation": demo_text_generation,
     "text-classification": demo_text_classification,
     "image-classification": demo_image_classification,
     "zero-shot-classification": demo_zero_shot,
+    "text-to-audio": demo_text_to_audio,
 }
 
 
