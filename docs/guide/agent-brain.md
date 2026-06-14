@@ -77,11 +77,11 @@ Run any with `PYTHONPATH=. python examples/<name>.py`:
 ```mermaid
 flowchart TD
     Q{What do you need?} 
-    Q -->|tiny vision, laptop/CPU| M1["SmolVLM-256M-Instruct"]
-    Q -->|video understanding| M2["SmolVLM2-500M-Video"]
-    Q -->|audio in → text| M3["Qwen2-Audio-7B-Instruct"]
-    Q -->|audio in + speech out| M4["Qwen2.5-Omni-3B ~12GB"]
-    Q -->|text reasoning brain| M5["Qwen3-0.6B … 8B"]
+    Q -->|"tiny vision, laptop/CPU"| M1["SmolVLM-256M-Instruct"]
+    Q -->|"video understanding"| M2["SmolVLM2-500M-Video"]
+    Q -->|"audio in to text"| M3["Qwen2-Audio-7B-Instruct"]
+    Q -->|"audio in + speech out"| M4["Qwen2.5-Omni-3B ~12GB"]
+    Q -->|"text reasoning brain"| M5["Qwen3-0.6B to 8B"]
 
     classDef q fill:#7C4DFF,stroke:#5b34d6,color:#fff;
     classDef m fill:#FFD21E,stroke:#E68A00,color:#3a2d00;

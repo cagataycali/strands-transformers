@@ -5,17 +5,23 @@ entirely through the single `use_transformers` tool. One model *plans*, another
 *acts* — perception to motor commands, no per-model glue.
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant C as 📷 cameras + task
-    participant R as 🧠 Cosmos-Reason2<br/>(run · image-text-to-text)
-    participant A as ⚙️ MolmoAct2<br/>(call · predict_action)
-    participant Rb as 🤖 robot
+flowchart LR
+    C["📷 cameras + task"]
+    R["🧠 Cosmos-Reason2<br/>run · image-text-to-text"]
+    A["⚙️ MolmoAct2<br/>call · predict_action"]
+    Rb["🤖 robot"]
 
-    C->>R: top view + "pick the lemon, drop in bowl"
-    R-->>C: plan — "lemon center, bowl right; move arm to lemon first"
-    C->>A: top+side views + task + joint state
-    A-->>Rb: actions [1, 30, 6]
+    C -->|"top view + 'pick the lemon'"| R
+    R -->|"plan: lemon center, move arm there first"| A
+    C -->|"top+side views + task + joint state"| A
+    A -->|"actions 1×30×6"| Rb
+
+    classDef in fill:#7C4DFF,stroke:#5b34d6,color:#fff;
+    classDef mid fill:#FFD21E,stroke:#E68A00,color:#3a2d00;
+    classDef out fill:#00E5FF,stroke:#00b3cc,color:#003844;
+    class C in;
+    class R,A mid;
+    class Rb out;
 ```
 
 ```python
