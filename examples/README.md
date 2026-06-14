@@ -54,6 +54,32 @@ use_transformers(action="call", target="cached:ovla.predict_action",
 # → 7-DoF action vector
 ```
 
+### `multimodal_pipelines.py` — text, image & audio via `run`
+text-generation, text/token classification, fill-mask, feature-extraction,
+zero-shot, image-classification, **text-to-audio**, and a full **ASR round-trip**
+(TTS → .wav → transcription) — all with tiny models, no big downloads.
+
+### `vision_tasks.py` — structured vision outputs via `run`
+object-detection (boxes), image-feature-extraction (embeddings),
+image-classification, depth-estimation (depth-map PNG artifact), and
+image-segmentation (masks).
+
+### `smolvlm_image_text.py` — a real VLM via `run`
+HuggingFaceTB/SmolVLM-256M-Instruct image-text-to-text; images are auto-folded
+into chat content.
+
+### `local_model_agent.py` — local brain via `TransformerModel`
+Runs a local HF causal-LM as the agent's reasoning engine, paired with
+`use_transformers` as a tool.
+
+### `smoke.py` — fast E2E health gate
+12 real checks (discovery + text/image/audio round-trip), no large downloads,
+non-zero exit on failure:
+
+```bash
+PYTHONPATH=. python examples/smoke.py
+```
+
 ## Legacy model compatibility (`strands_transformers.core.compat`)
 
 Many `trust_remote_code` models were written for transformers 4.x and break on
