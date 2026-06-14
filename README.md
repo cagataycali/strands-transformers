@@ -92,6 +92,34 @@ text plus paths to any generated media — all natively.
 
 ---
 
+## 60-second hello, multimodal
+
+A full local **vision agent** in a dozen lines — no API key, no server. Copy, run,
+watch it name a color it has never been told:
+
+```python
+import io
+from PIL import Image
+from strands import Agent
+from strands_transformers import TransformerModel
+
+# a green square as PNG bytes
+buf = io.BytesIO(); Image.new("RGB", (64, 64), (20, 200, 40)).save(buf, "PNG")
+
+model = TransformerModel(model_path="HuggingFaceTB/SmolVLM-256M-Instruct")
+agent = Agent(model=model, system_prompt="You are concise.")
+
+print(agent([
+    {"image": {"format": "png", "source": {"bytes": buf.getvalue()}}},
+    {"text": "Color? One word."},
+]))
+# → Green.
+```
+
+That's a 256M-param model running on CPU or GPU, wired into the standard Strands
+agent loop, *seeing* pixels through a content block. Swap the `model_path` for any
+HF vision-language model and it just works.
+
 ## ⭐ Multimodal agent brain (`TransformerModel`)
 
 Make a **local** HuggingFace model the agent's reasoning engine. The provider
