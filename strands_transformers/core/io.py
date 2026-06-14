@@ -52,6 +52,52 @@ def _decode_data_uri(uri: str) -> Any:
     return raw
 
 
+def decode_wav(path: str):
+    """Decode a WAV file to (float32 mono array, sampling_rate) using stdlib wave.
+
+    Lets audio tasks (ASR) accept .wav file paths without requiring ffmpeg /
+    torchcodec / soundfile — we hand the pipeline a pre-decoded array instead.
+    Returns None if the file isn't a readable WAV.
+    """
+    import wave
+
+    import numpy as np
+
+    try:
+        with wave.open(path, "rb") as w:
+            n_channels = w.getnchannels()
+            sampwidth = w.getsampwidth()
+            sr = w.getframerate()
+            raw = w.readframes(w.getnframes())
+    except Exception:
+        return None
+
+    dtype = {1: np.int8, 2: np.int16, 4: np.int32}.get(sampwidth)
+    if dtype is None:
+        return None
+    arr = np.frombuffer(raw, dtype=dtype).astype(np.float32)
+    max_val = float(np.iinfo(dtype).max)
+    arr = arr / max_val
+    if n_channels > 1:
+        arr = arr.reshape(-1, n_channels).mean(axis=1)  # downmix to mono
+    return arr, sr
+
+
+def maybe_decode_audio_path(value: Any):
+    """If `value` is a path to a .wav file, decode it to a pipeline-ready dict.
+
+    Returns {"raw": ndarray, "sampling_rate": int} or None.
+    """
+    import os
+
+    if isinstance(value, str) and value.lower().endswith(".wav") and os.path.exists(value):
+        decoded = decode_wav(value)
+        if decoded is not None:
+            arr, sr = decoded
+            return {"raw": arr, "sampling_rate": sr}
+    return None
+
+
 def load_array(spec: Any):
     """Load a numpy array from list, .npy path, or pass through ndarray.
 

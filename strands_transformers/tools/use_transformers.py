@@ -227,7 +227,7 @@ def use_transformers(
             pipeline_kwargs = params.pop("pipeline_kwargs", {}) if isinstance(params, dict) else {}
             pipe, key = engine.get_pipeline(resolved, model=model, device=device,
                                             cache_key=cache_key, **pipeline_kwargs)
-            call_args, call_kwargs = _prepare_run_inputs(inputs, params)
+            call_args, call_kwargs = _prepare_run_inputs(inputs, params, resolved)
             if label:
                 logger.info("run %s (%s): %s", resolved, model or "default", label)
             result = pipe(*call_args, **call_kwargs)
@@ -329,18 +329,32 @@ def _coerce_param(value: Any) -> Any:
     return io.coerce_input(value)
 
 
-def _prepare_run_inputs(inputs: Any, params: Dict[str, Any]):
+def _prepare_run_inputs(inputs: Any, params: Dict[str, Any], task: str = ""):
     """Map `inputs` + `parameters` onto a pipeline call.
 
     Pipelines accept either a positional input (text/path/url/image) or, for
     multimodal tasks, keyword inputs (images=, text=, audio=, ...). We coerce
     base64/data-uris and pass everything else through natively.
+
+    For audio tasks (ASR, audio-classification) a `.wav` path is pre-decoded with
+    the stdlib wave reader into a {"raw", "sampling_rate"} dict, so transcription
+    works without ffmpeg / torchcodec / soundfile installed.
     """
     kwargs = {k: io.coerce_input(v) for k, v in params.items()}
+
+    # Pre-decode WAV paths for audio tasks → positional {"raw","sampling_rate"}.
+    if "audio" in task or "speech" in task:
+        decoded = io.maybe_decode_audio_path(inputs)
+        if decoded is not None:
+            return [decoded], kwargs
+
     if inputs is None:
         return [], kwargs
     if isinstance(inputs, dict):
-        # multimodal keyword inputs (images=, text=, audio=, question=, ...)
+        # An explicit raw-audio dict is a positional input, not kwargs.
+        if "raw" in inputs and "sampling_rate" in inputs:
+            return [{k: io.coerce_input(v) for k, v in inputs.items()}], kwargs
+        # otherwise: multimodal keyword inputs (images=, text=, audio=, ...)
         merged = {k: io.coerce_input(v) for k, v in inputs.items()}
         merged.update(kwargs)
         return [], merged
