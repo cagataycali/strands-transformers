@@ -19,6 +19,41 @@ PYTHONPATH=. python examples/<name>.py
 | **High-level** | `run` | The task is a standard transformers pipeline (text, image, audio, zero-shot, detection, ASR, TTS, …). Inputs are paths/URLs/PIL/arrays; outputs are structured + media saved to disk. | `multimodal_pipelines.py` |
 | **Low-level** | `call` | The model has a custom API (e.g. VLA `predict_action`) or you need raw `AutoProcessor` + `AutoModel` control. Load components, cache them, chain calls. | `molmoact_vla.py`, `openvla_vla.py` |
 
+## ⭐ Multimodal agent brain examples
+
+These drive `TransformerModel` — a **local** HF model as the agent's brain —
+through real content blocks. All GPU-verified with live inference.
+
+### `multimodal_agent.py` — image content block → VLM agent
+`Agent(model=TransformerModel("SmolVLM-256M"))` answers `"Green."` to a green
+image passed as an `{"image": {...}}` content block. Multimodal is auto-detected.
+
+### `multimodal_advanced.py` — video + tool-result image
+- **Video**: a `{"video": {"fps": 2.0, "source": {"bytes": frames}}}` block →
+  SmolVLM2 answers `"BRIGHTER."` (real frame timestamps via `VideoMetadata`).
+- **Tool-result image** (the agentic-vision loop): a tool returns an image inside
+  a `toolResult`; the VLM reasons over it next turn → `"Blue."`.
+
+### `document_and_audio.py` — document block + audio round-trip
+- **Document**: a `{"document": {...}}` block is flattened to text; the LM
+  recovers a passphrase from it.
+- **Audio (tool path)**: a real TTS→ASR round-trip (mms-tts → whisper-tiny)
+  transcribes "the quick brown fox…" back word-for-word.
+
+### `audio_content_block.py` — audio content block → audio-native model
+Extends the Strands taxonomy with an `audio` block (`make_audio_block`) and feeds
+it to a Qwen2-Audio model's feature extractor — audio *inside the conversation*.
+
+### `omni_audio.py` — Qwen2.5-Omni: audio-in AND speech-out
+The frontier. One any-to-any model hears audio and **speaks** its reply:
+- audio-in (440 Hz tone) → `"It's a pure tone."`
+- text-in → text + a real 24 kHz speech waveform via `model.get_last_audio()`;
+  whisper re-transcribes Omni's own speech to confirm it's intelligible.
+
+---
+
+## `use_transformers` tool examples
+
 ## The examples
 
 ### `multimodal_pipelines.py` — the `run` path

@@ -30,12 +30,19 @@ def __getattr__(name):
     if name == "TransformerModel":
         from strands_transformers.models.transformers import TransformerModel
         return TransformerModel
+    # Audio content-block helpers (our extension to the Strands taxonomy).
+    if name in ("make_audio_block", "extract_audio_payload", "AudioContent"):
+        from strands_transformers.types import audio as _audio
+        return getattr(_audio, name)
     raise AttributeError(f"module 'strands_transformers' has no attribute '{name}'")
 
 
 __all__ = [
     "use_transformers",
     "TransformerModel",
+    "make_audio_block",
+    "extract_audio_payload",
+    "AudioContent",
     "registry",
     "engine",
     "io",
