@@ -209,7 +209,7 @@ def use_transformers(
             obj = _resolve_target(target)
             if not callable(obj):
                 return _ok(f"📋 {target} = {str(obj)[:500]}", data=str(obj)[:2000])
-            coerced = {k: io.coerce_input(v) for k, v in params.items()}
+            coerced = {k: _coerce_param(v) for k, v in params.items()}
             result = obj(**coerced)
             if cache_key:
                 engine._CACHE[cache_key] = result  # cache raw object (model/processor)
@@ -217,8 +217,15 @@ def use_transformers(
                            f"({type(result).__name__})",
                            data={"cached": cache_key, "type": type(result).__name__})
             out = io.serialize_output(result, save_artifacts=save_artifacts)
-            return _ok(f"✅ {target}() → {type(result).__name__}",
-                       data=out.get("result"), artifacts=out.get("artifacts", []))
+            preview = json.dumps(out.get("result"), indent=2, default=str)
+            if len(preview) > 2000:
+                preview = preview[:2000] + " …"
+            arts = out.get("artifacts", [])
+            head = f"✅ {target}() → {type(result).__name__}"
+            if arts:
+                head += "\n📎 artifacts:\n" + "\n".join(f"  • {a}" for a in arts)
+            return _ok(f"{head}\n{preview}",
+                       data=out.get("result"), artifacts=arts)
 
         return _err(f"Unknown action '{action}'. Try: tasks, modalities, task_info, "
                     f"classes, inspect, run, call, cache, clear_cache.")
@@ -250,6 +257,22 @@ def _resolve_target(target: str) -> Any:
             obj = getattr(obj, attr)
         return obj
     return registry.resolve_attr(target)
+
+
+def _coerce_param(value: Any) -> Any:
+    """Coerce a single parameter value.
+
+    Resolves "cached:key[.attr]" strings to live cached objects (so VLA models
+    can receive e.g. processor=cached:proc), then applies multimodal input
+    coercion (base64/data-uri → PIL/bytes) to everything else.
+    """
+    if isinstance(value, str) and value.startswith("cached:"):
+        return _resolve_target(value)
+    if isinstance(value, list):
+        return [_coerce_param(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _coerce_param(v) for k, v in value.items()}
+    return io.coerce_input(value)
 
 
 def _prepare_run_inputs(inputs: Any, params: Dict[str, Any]):
