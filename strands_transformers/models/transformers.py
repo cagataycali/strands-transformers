@@ -103,9 +103,11 @@ def _bytes_to_pil(data: Any) -> Optional[Any]:
     except Exception:  # pragma: no cover - PIL should be present for VLMs
         return None
 
-    # Already a PIL image
-    if Image.isImageType(data):
-        return data
+    # Already a PIL image (Image.isImageType removed in Pillow 12.x; use isinstance).
+    # Normalize to RGB so grayscale/palette/RGBA/CMYK inputs match what vision
+    # processors expect (the bytes-decode path already does .convert("RGB")).
+    if isinstance(data, Image.Image):
+        return data if data.mode == "RGB" else data.convert("RGB")
 
     # numpy array -> PIL
     try:
@@ -186,8 +188,14 @@ def _normalize_video(payload: Any) -> Optional[Tuple[Any, Optional[float]]]:
                 from torchvision import io as tvio
 
                 vframes, _, info = tvio.read_video(path, pts_unit="sec")
+                arr = vframes.numpy()
+                # A garbage/undecodable container can yield 0 frames; treat that
+                # as undecodable rather than passing an empty "video" downstream.
+                if arr.shape[0] == 0:
+                    logger.warning("video decoded to 0 frames; treating as undecodable")
+                    return None
                 fps = info.get("video_fps") if isinstance(info, dict) else None
-                return (vframes.numpy(), fps)
+                return (arr, fps)
             except Exception as e:
                 logger.warning("could not decode video bytes: %s", e)
                 return None
@@ -276,12 +284,28 @@ def _document_to_text(doc: Dict[str, Any]) -> str:
     source = doc.get("source", {}) or {}
     raw = source.get("bytes") if isinstance(source, dict) else None
 
+    # Text-y formats decode as UTF-8; binary formats (pdf/docx/xls/...) can't be
+    # meaningfully flattened to text here, so emit a clear placeholder rather
+    # than feeding mojibake to the model.
+    _TEXT_FORMATS = {"txt", "md", "csv", "json", "html", "xml", "yaml", "yml", "tsv", "log"}
     text_body = ""
     if isinstance(raw, (bytes, bytearray)):
-        try:
-            text_body = bytes(raw).decode("utf-8", errors="replace")
-        except Exception:
-            text_body = f"<{len(raw)} bytes of binary {fmt} document>"
+        data = bytes(raw)
+        decoded = None
+        if str(fmt).lower() in _TEXT_FORMATS:
+            try:
+                decoded = data.decode("utf-8")
+            except UnicodeDecodeError:
+                decoded = None
+        else:
+            # Unknown/binary format: only accept it if it's actually valid UTF-8.
+            try:
+                decoded = data.decode("utf-8")
+            except UnicodeDecodeError:
+                decoded = None
+        text_body = decoded if decoded is not None else (
+            f"<{len(data)} bytes of binary {fmt} document; not decodable as text>"
+        )
     elif isinstance(raw, str):
         text_body = raw
     elif isinstance(source, list):
@@ -1402,6 +1426,7 @@ class TransformerModel(Model):
         augmented_system_prompt = (system_prompt or "") + json_instruction
 
         response_text = ""
+        reasoning_text = ""
         async for event in self.stream(
             prompt, system_prompt=augmented_system_prompt, **kwargs
         ):
@@ -1409,13 +1434,23 @@ class TransformerModel(Model):
                 delta = event["contentBlockDelta"]["delta"]
                 if "text" in delta:
                     response_text += delta["text"]
+                elif "reasoningContent" in delta:
+                    # Thinking models (Qwen3) may emit JSON inside an (even
+                    # unterminated) <think> block; keep it as a fallback source.
+                    reasoning_text += delta["reasoningContent"].get("text", "")
             yield cast(Dict[str, Union[T, Any]], event)
 
-        try:
-            data = json.loads(_extract_json(response_text))
-            output_instance = output_model(**data)
-            yield {"output": output_instance}
-        except Exception as e:
-            raise ValueError(
-                f"Failed to parse structured output: {e}\nResponse: {response_text}"
-            ) from e
+        # Try the visible answer first, then fall back to reasoning content.
+        for candidate in (response_text, response_text + "\n" + reasoning_text):
+            try:
+                data = json.loads(_extract_json(candidate))
+                yield {"output": output_model(**data)}
+                return
+            except Exception:
+                continue
+
+        raise ValueError(
+            "Failed to parse structured output. The model did not emit valid JSON "
+            f"matching {output_model.__name__}. Try increasing max_tokens or "
+            f"disabling thinking mode.\nResponse: {(response_text or reasoning_text)[:1000]}"
+        )
