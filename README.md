@@ -341,6 +341,22 @@ low-level `call` layer. Two worked, GPU-verified examples:
 | [MolmoAct2-SO100_101](https://huggingface.co/allenai/MolmoAct2-SO100_101) | [`examples/molmoact_vla.py`](examples/molmoact_vla.py) | continuous actions `[1, 30, 6]` |
 | [OpenVLA-7b](https://huggingface.co/openvla/openvla-7b) | [`examples/openvla_vla.py`](examples/openvla_vla.py) | 7-DoF action vector |
 
+```python
+# 1) load processor + model once, cache them
+use_transformers(action="call", target="AutoProcessor.from_pretrained",
+                 parameters={"pretrained_model_name_or_path": REPO, "trust_remote_code": True},
+                 cache_key="proc")
+use_transformers(action="call", target="AutoModelForImageTextToText.from_pretrained",
+                 parameters={"pretrained_model_name_or_path": REPO, "trust_remote_code": True,
+                             "dtype": "bfloat16", "device_map": "cuda"}, cache_key="vla")
+
+# 2) call the model's own predict_action with the cached processor
+use_transformers(action="call", target="cached:vla.predict_action",
+                 parameters={"processor": "cached:proc", "images": [top, side],
+                             "state": joint_state, "norm_tag": "so100_so101_molmoact2"})
+# → MolmoAct2ActionOutput.actions, shape [1, 30, 6]
+```
+
 Helpers that make this ergonomic:
 - `cached:key[.attr]` references resolve to live cached objects, including inside
   `parameters` (so `processor="cached:proc"` works).
