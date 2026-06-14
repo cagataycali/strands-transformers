@@ -13,6 +13,7 @@ end-to-end quickly:
   • image-classification   (image → labels)
   • zero-shot-classification (text + candidate labels → ranked labels)
   • text-to-audio          (text → speech .wav artifact)
+  • automatic-speech-recognition (audio .wav → text, full round-trip)
 
 Run directly:   python examples/multimodal_pipelines.py
 """
@@ -79,12 +80,28 @@ def demo_text_to_audio():
     )
 
 
+def demo_speech_recognition():
+    # Full audio round-trip: synthesize speech, then transcribe the .wav back.
+    tts = demo_text_to_audio()
+    wav_path = tts.get("artifacts", [None])[0]
+    if not wav_path:
+        return tts
+    return use_transformers(
+        action="run",
+        task="automatic-speech-recognition",
+        model="hf-internal-testing/tiny-random-wav2vec2",
+        inputs=wav_path,  # .wav path is decoded natively (no ffmpeg needed)
+        label="tiny ASR round-trip",
+    )
+
+
 DEMOS = {
     "text-generation": demo_text_generation,
     "text-classification": demo_text_classification,
     "image-classification": demo_image_classification,
     "zero-shot-classification": demo_zero_shot,
     "text-to-audio": demo_text_to_audio,
+    "automatic-speech-recognition": demo_speech_recognition,
 }
 
 
