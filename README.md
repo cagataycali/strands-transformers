@@ -365,6 +365,32 @@ unchanged. Trigger explicitly with `use_transformers(action="compat", ...)`.
 PYTHONPATH=. python examples/<name>.py
 ```
 
+## FAQ & troubleshooting
+
+**A Qwen3 reply came back empty / all reasoning.**
+Qwen3 spends tokens inside `<think>…</think>` first. Raise `max_tokens`, or set
+`enable_thinking=False`. Reasoning is streamed separately as `reasoningContent`.
+
+**`mp3` / `flac` / `ogg` audio won't decode.**
+WAV works out of the box (stdlib). For compressed formats install the extra:
+`pip install -e ".[audio]"` (pulls in `soundfile`). Raw numpy waveforms always work.
+
+**`trust_remote_code` models (VLA, Omni).**
+`TransformerModel` and the `call` path pass `trust_remote_code=True` by default so
+custom-code models load. Legacy 4.x-era models are auto-patched by `core/compat.py`.
+
+**Qwen2.5-Omni didn't speak.**
+Speech is off by default (keeps text fast). Set `model.update_config(speak=True)`,
+then read the waveform with `model.get_last_audio()` → `(np.float32, 24000)`.
+
+**Out of memory.**
+Drop to a smaller model (see *Choosing a model*), or force `device="cpu"`. The
+provider uses bf16 on GPU automatically.
+
+**Where do generated images / audio go?**
+The `run` path writes media to disk and returns the path in the result's
+`artifacts` list (e.g. a TTS `.wav`).
+
 ## Supported modalities
 
 | Modality | Example tasks |
