@@ -140,11 +140,13 @@ def _bytes_to_pil(data: Any) -> Optional[Any]:
     return None
 
 
-def _normalize_video(payload: Any) -> Optional[Any]:
-    """Normalize a video payload into a (T, H, W, C) uint8 numpy array.
+def _normalize_video(payload: Any) -> Optional[Tuple[Any, Optional[float]]]:
+    """Normalize a video payload into ((T, H, W, C) uint8 array, fps_or_None).
 
     Accepts: a list of frames (PIL/np), a 4D numpy array, or raw container
-    bytes. Returns None if it cannot be decoded.
+    bytes. fps is returned when it can be inferred from the container; None
+    otherwise (the caller may then supply an explicit fps). Returns None if
+    the payload cannot be decoded at all.
     """
     try:
         import numpy as np
@@ -153,7 +155,7 @@ def _normalize_video(payload: Any) -> Optional[Any]:
 
     # Already a 4D array (T, H, W, C)
     if isinstance(payload, np.ndarray):
-        return payload if payload.ndim == 4 else None
+        return (payload, None) if payload.ndim == 4 else None
 
     # A list/tuple of frames (PIL images or arrays)
     if isinstance(payload, (list, tuple)) and payload:
@@ -167,15 +169,14 @@ def _normalize_video(payload: Any) -> Optional[Any]:
             frames.append(np.asarray(pil))
         if frames:
             try:
-                return np.stack(frames, axis=0)
+                return (np.stack(frames, axis=0), None)
             except Exception:
                 return None
         return None
 
-    # Raw container bytes -> sample frames via torchvision/decord if available
+    # Raw container bytes -> decode frames + real fps via torchvision
     if isinstance(payload, (bytes, bytearray)):
         try:
-            import io as _io
             import tempfile
 
             with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tf:
@@ -184,9 +185,9 @@ def _normalize_video(payload: Any) -> Optional[Any]:
             try:
                 from torchvision import io as tvio
 
-                vframes, _, _ = tvio.read_video(path, pts_unit="sec")
-                # (T, H, W, C) uint8
-                return vframes.numpy()
+                vframes, _, info = tvio.read_video(path, pts_unit="sec")
+                fps = info.get("video_fps") if isinstance(info, dict) else None
+                return (vframes.numpy(), fps)
             except Exception as e:
                 logger.warning("could not decode video bytes: %s", e)
                 return None
@@ -284,6 +285,7 @@ class TransformerModel(Model):
         trust_remote_code: bool
         low_cpu_mem_usage: bool
         multimodal: Optional[bool]
+        video_fps: Optional[float]
 
     def __init__(
         self,
@@ -502,11 +504,13 @@ class TransformerModel(Model):
         # video
         if "video" in content:
             vid = content["video"]
+            explicit_fps = vid.get("fps") if isinstance(vid, dict) else None
             src = vid.get("source", vid) if isinstance(vid, dict) else vid
             payload = src.get("bytes", src) if isinstance(src, dict) else src
             norm = _normalize_video(payload)
             if norm is not None:
-                videos.append(norm)
+                arr, fps = norm
+                videos.append((arr, explicit_fps if explicit_fps is not None else fps))
                 parts.append({"type": "video"})
             else:
                 parts.append({"type": "text", "text": "[unrenderable video]"})
@@ -548,11 +552,13 @@ class TransformerModel(Model):
                         parts.append({"type": "image"})
                 elif "video" in c:
                     vid = c["video"]
+                    explicit_fps = vid.get("fps") if isinstance(vid, dict) else None
                     src = vid.get("source", vid) if isinstance(vid, dict) else vid
                     vpayload = src.get("bytes", src) if isinstance(src, dict) else src
                     vnorm = _normalize_video(vpayload)
                     if vnorm is not None:
-                        videos.append(vnorm)
+                        arr, fps = vnorm
+                        videos.append((arr, explicit_fps if explicit_fps is not None else fps))
                         parts.append({"type": "video"})
             if not parts:
                 parts.append({"type": "text", "text": "[empty tool result]"})
@@ -618,6 +624,41 @@ class TransformerModel(Model):
             out[k] = v
         return out
 
+    def _build_video_metadata(self, videos: List[Tuple[Any, Optional[float]]]):
+        """Build per-video VideoMetadata so the processor gets real timestamps.
+
+        Returns None if VideoMetadata is unavailable in this transformers
+        version (the processor then falls back to its own default).
+        """
+        try:
+            from transformers.video_utils import VideoMetadata
+        except Exception:
+            return None
+
+        default_fps = float(self.config.get("video_fps", 24.0))
+        meta = []
+        for arr, fps in videos:
+            try:
+                n = int(arr.shape[0])
+                h = int(arr.shape[1])
+                w = int(arr.shape[2])
+            except Exception:
+                n, h, w = 0, 0, 0
+            use_fps = float(fps) if fps else default_fps
+            duration = (n / use_fps) if use_fps else float(n)
+            meta.append(
+                VideoMetadata(
+                    total_num_frames=n,
+                    fps=use_fps,
+                    width=w,
+                    height=h,
+                    duration=duration,
+                    video_backend="manual",
+                    frames_indices=list(range(n)),
+                )
+            )
+        return meta
+
     def _prepare_multimodal_inputs(
         self,
         messages: Messages,
@@ -637,9 +678,16 @@ class TransformerModel(Model):
         if images:
             proc_kwargs["images"] = images
         if videos:
+            # videos is a list of (array(T,H,W,C), fps_or_None) tuples.
+            arrays = [v[0] for v in videos]
             # Processors expect videos nested per batch sample:
             # [sample][video] where each video is a (T, H, W, C) array.
-            proc_kwargs["videos"] = [videos]
+            proc_kwargs["videos"] = [arrays]
+            # Provide real frame timestamps when the processor supports it
+            # (e.g. SmolVLM), so it doesn't default to fps=24 with a warning.
+            metadata = self._build_video_metadata(videos)
+            if metadata is not None:
+                proc_kwargs["video_metadata"] = [metadata]
 
         inputs = self.processor(**proc_kwargs)
         inputs = dict(inputs)  # BatchFeature -> plain dict

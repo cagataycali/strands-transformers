@@ -82,7 +82,7 @@ def test_video() -> bool:
         for v in (10, 40, 80, 120, 160, 200, 230, 250)
     ]
     messages = [{"role": "user", "content": [
-        {"video": {"format": "mp4", "source": {"bytes": frames}}},
+        {"video": {"format": "mp4", "fps": 2.0, "source": {"bytes": frames}}},
         {"text": "Does this video get brighter or darker over time? Answer brighter or darker."},
     ]}]
     ans = asyncio.run(_collect(model, messages))
