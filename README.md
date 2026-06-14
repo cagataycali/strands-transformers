@@ -325,6 +325,19 @@ use_transformers(action="call", target="cached:vla.predict_action", parameters={
 The source of truth is transformers' own `SUPPORTED_TASKS` registry, read at
 runtime in [`core/registry.py`](strands_transformers/core/registry.py):
 
+```
+strands_transformers/
+├── tools/use_transformers.py   # the one @tool: discover · run · call
+├── models/transformers.py      # TransformerModel — local multimodal agent brain
+├── types/audio.py              # audio content-block extension
+└── core/
+    ├── registry.py             # transformers task taxonomy → modality → AutoModel
+    ├── engine.py               # load/cache models & pipelines; device + dtype
+    ├── io.py                   # coerce inputs · serialize outputs · save media
+    └── compat.py               # shims so 4.x-era custom-code models run on 5.x
+```
+
+
 | Layer | File | Responsibility |
 |-------|------|----------------|
 | **Registry** | `core/registry.py` | Reads transformers' task taxonomy → modality → AutoModel. Dynamic class/fn resolution. |
