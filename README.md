@@ -114,6 +114,47 @@ runtime in [`core/registry.py`](strands_transformers/core/registry.py):
 
 Nothing is hardcoded per-task. New transformers task ⇒ instantly available.
 
+## Robotics / Vision-Language-Action (VLA)
+
+VLA models take camera images + a language instruction (+ robot state) and emit
+**robot actions**. They usually expose a custom `predict_action` method rather
+than a standard pipeline, so they're driven through the low-level `call` layer.
+Two worked, GPU-verified examples live in [`examples/`](examples/):
+
+| Model | Example | Output |
+|-------|---------|--------|
+| [MolmoAct2-SO100_101](https://huggingface.co/allenai/MolmoAct2-SO100_101) | [`examples/molmoact_vla.py`](examples/molmoact_vla.py) | continuous actions `[1, 30, 6]` |
+| [OpenVLA-7b](https://huggingface.co/openvla/openvla-7b) | [`examples/openvla_vla.py`](examples/openvla_vla.py) | 7-DoF action vector |
+
+```python
+use_transformers(action="call", target="AutoProcessor.from_pretrained",
+                 parameters={"pretrained_model_name_or_path": REPO, "trust_remote_code": True},
+                 cache_key="proc")
+use_transformers(action="call", target="AutoModelForImageTextToText.from_pretrained",
+                 parameters={"pretrained_model_name_or_path": REPO, "trust_remote_code": True,
+                             "dtype": "bfloat16", "device_map": "cuda"}, cache_key="vla")
+use_transformers(action="call", target="cached:vla.predict_action",
+                 parameters={"processor": "cached:proc", "images": [...], "state": [...]})
+```
+
+Helpers that make this ergonomic:
+- `cached:key[.attr]` references resolve to live cached objects, including inside
+  `parameters` (so `processor="cached:proc"` works).
+- A `"**"` parameter key unpacks a cached mapping into kwargs — the idiomatic
+  `model.predict_action(**processor(prompt, image))`.
+
+### Legacy models on new transformers
+
+Some VLA models (OpenVLA) shipped for transformers 4.x and break on 5.x. The
+built-in [`core/compat.py`](strands_transformers/core/compat.py) shims patch the
+gaps automatically (moved tokenizer symbols, removed `AutoModelForVision2Seq`,
+`tie_weights` signature drift, hard `timm` pins) so the model's own code runs
+unchanged. You can also trigger it explicitly:
+
+```python
+use_transformers(action="compat", parameters={"timm_version": "0.9.16"})
+```
+
 ## Local model as the agent's brain
 
 Use any HuggingFace causal-LM as the Strands model provider:
