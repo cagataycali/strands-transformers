@@ -42,6 +42,27 @@ the model actually consumes them. With Qwen2.5-Omni it even **speaks back**.
   └───────────────────────────────────────────────────────────────────┘
 ```
 
+## Why
+
+Wiring HuggingFace into an agent usually means a pile of per-model glue: look up
+the right `AutoModel*` class, build the matching processor, format inputs,
+decode outputs, special-case every new architecture. Multiply that by every task
+and modality and it never ends.
+
+`use_transformers` collapses all of it into **one tool** that reads transformers'
+*own* task taxonomy at runtime — so coverage tracks upstream automatically. And
+`TransformerModel` makes any local HF model a **drop-in Strands brain** that
+speaks the full content-block protocol (image / video / audio / document),
+no servers and no API keys.
+
+|                        | Hand-rolled glue | **strands-transformers** |
+|------------------------|------------------|--------------------------|
+| New task / model       | write an adapter | works, **no code change** |
+| Discovery              | read model cards | `action="tasks"` / `"inspect"` |
+| Multimodal inputs      | format per model | content blocks, handled for you |
+| Local model as brain   | custom provider  | `TransformerModel(model_path=…)` |
+| Audio in / speech out  | bolt on TTS+ASR  | native via Qwen2.5-Omni |
+
 ## Install
 
 ```bash
