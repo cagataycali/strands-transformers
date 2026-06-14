@@ -43,6 +43,17 @@ the model actually consumes them. With Qwen2.5-Omni it even **speaks back**.
                           ──▶  document blocks  →  text · reasoning · speech
 ```
 
+## What you can build
+
+- 🗣️ **Voice assistant** — speak to it, it speaks back, one local model (Qwen2.5-Omni).
+- 🤖 **Robot controller** — camera frames + an instruction → joint actions (MolmoAct, OpenVLA).
+- 👁️ **Screen-watcher agent** — a tool returns a screenshot; the VLM reasons over it.
+- 📄 **Document Q&A** — drop a doc content block in the conversation, ask about it.
+- 🎬 **Video understander** — pass frames, ask what changes over time.
+- 🔌 **Any HF task on tap** — ASR, detection, segmentation, embeddings… via one tool.
+
+All **local** — no API keys, no servers, no per-model glue.
+
 ## Why
 
 Wiring HuggingFace into an agent usually means a pile of per-model glue: look up
