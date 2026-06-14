@@ -3,6 +3,32 @@
 One `@tool` exposes the entire transformers library three ways: **discover**,
 **run** (high-level pipelines), and **call** (low-level any class/fn/method).
 
+```mermaid
+flowchart LR
+    AG["🤖 Agent"] --> UT["🛠️ use_transformers"]
+    UT --> DISC["🔍 discover<br/>tasks · modalities · inspect"]
+    UT --> RUN["▶️ run<br/>high-level pipelines"]
+    UT --> CALL["⚙️ call<br/>any class · fn · method"]
+    DISC --> REG["📚 transformers SUPPORTED_TASKS<br/><i>read at runtime</i>"]
+    RUN --> REG
+    CALL --> REG
+
+    classDef a fill:#7C4DFF,stroke:#5b34d6,color:#fff;
+    classDef t fill:#FFD21E,stroke:#E68A00,color:#3a2d00;
+    classDef r fill:#00E5FF,stroke:#00b3cc,color:#003844;
+    class AG a;
+    class UT,DISC,RUN,CALL t;
+    class REG r;
+```
+
+| Action | What it does | Example |
+|--------|--------------|---------|
+| `tasks` / `modalities` | list everything transformers supports | discovery |
+| `task_info` / `inspect` / `classes` | drill into a task / signature / Auto* class | discovery |
+| `run` | high-level pipeline (ASR, VLM, detection, TTS…) | `multimodal_pipelines.py` |
+| `call` | any class/fn/method, with caching (VLA `predict_action`) | `molmoact_vla.py` |
+| `compat` | apply legacy 4.x→5.x shims | — |
+
 ## Discover (never guess)
 
 ```python

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <defs>
+    <linearGradient id="hf" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFD21E"/>
+      <stop offset="1" stop-color="#FF9D00"/>
+    </linearGradient>
+    <linearGradient id="strand" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7C4DFF"/>
+      <stop offset="1" stop-color="#00E5FF"/>
+    </linearGradient>
+  </defs>
+  <!-- HuggingFace-style face -->
+  <circle cx="32" cy="34" r="20" fill="url(#hf)"/>
+  <circle cx="25" cy="31" r="3" fill="#3A2D00"/>
+  <circle cx="39" cy="31" r="3" fill="#3A2D00"/>
+  <path d="M24 40 q8 7 16 0" stroke="#3A2D00" stroke-width="3" stroke-linecap="round" fill="none"/>
+  <!-- intertwined strands (agents) weaving over the top -->
+  <path d="M8 18 C 22 6, 42 6, 56 18" stroke="url(#strand)" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <path d="M8 18 C 24 30, 40 30, 56 18" stroke="url(#strand)" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.75"/>
+  <circle cx="8" cy="18" r="3.2" fill="#7C4DFF"/>
+  <circle cx="56" cy="18" r="3.2" fill="#00E5FF"/>
+</svg>

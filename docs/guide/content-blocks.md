@@ -1,22 +1,39 @@
 # Content blocks & modalities
 
 `TransformerModel` consumes the full Strands content-block taxonomy. Every output
-below is a **real model result** (NVIDIA/CUDA, transformers 5.12 / torch 2.10),
+below is a **real** model result (CUDA · transformers 5.12 · torch 2.10),
 reproducible from the matching example.
 
-| Content block | Handled by | Example | Verified output |
-|---------------|-----------|---------|-----------------|
-| `text` | tokenizer fast-path | every example | — |
-| `image` | AutoProcessor (vision) | `multimodal_agent.py` | `"Green."` |
-| `video` | processor + `VideoMetadata` (fps) | `multimodal_advanced.py` | `"BRIGHTER."` |
-| `image` in `toolResult` | folded back into the turn | `multimodal_advanced.py` | `"Blue."` |
-| `document` | flattened to text | `document_and_audio.py` | recovers `BANANA-42` |
-| `audio` *(our extension)* | feature extractor | `audio_content_block.py` | audio→text |
-| `audio` in/out | Qwen2.5-Omni Thinker+Talker | `omni_audio.py` | hears + **speaks** |
+```mermaid
+flowchart TB
+    subgraph CB["content blocks → handler"]
+        direction LR
+        T["📝 text"] --> HT["tokenizer fast-path"]
+        I["🖼️ image"] --> HI["AutoProcessor 👁"]
+        V["🎬 video"] --> HV["processor + VideoMetadata (fps)"]
+        TR["🧰 toolResult(image)"] --> HI
+        D["📄 document"] --> HD["flatten → text"]
+        AU["🔊 audio*"] --> HA["feature_extractor 🔊"]
+        OM["🔊 audio in/out"] --> HO["Omni Thinker+Talker"]
+    end
+    classDef blk fill:#7C4DFF,stroke:#5b34d6,color:#fff;
+    classDef h fill:#FFD21E,stroke:#E68A00,color:#3a2d00;
+    class T,I,V,TR,D,AU,OM blk;
+    class HT,HI,HV,HD,HA,HO h;
+```
+<sub>* `audio` is our extension to the Strands taxonomy — see [Audio](audio.md).</sub>
+
+## Example responses
+
+| Block | Input | Script | Real output |
+|-------|-------|--------|-------------|
+| `image` | <img src="../../assets/img/green.png" width="44"/> "Color? One word." | `multimodal_agent.py` | `"Green."` |
+| `video` | 8 frames dark→bright (`fps=2.0`) | `multimodal_advanced.py` | `"BRIGHTER."` |
+| `image` in `toolResult` | tool returns <img src="../../assets/img/blue.png" width="44"/> | `multimodal_advanced.py` | `"Blue."` |
+| `document` | txt "…passphrase is BANANA-42…" | `document_and_audio.py` | recovers `BANANA-42` |
+| `audio` | 440 Hz tone (Omni) | `omni_audio.py` | `"It's a pure tone."` |
 
 ## 🖼️ Image
-
-A green PNG in → `"Green."` out. Multimodal is auto-detected from the processor.
 
 ```python
 result = agent([
@@ -51,8 +68,6 @@ next turn — exactly the loop you want for screen-watchers and camera agents.
 
 ## 📄 Document
 
-A `document` block is flattened to text and fed to a plain text LM.
-
 ```python
 {"document": {"name": "secret", "format": "txt",
               "source": {"bytes": b"...the passphrase is BANANA-42..."}}}
@@ -61,7 +76,7 @@ A `document` block is flattened to text and fed to a plain text LM.
 
 ## 🔊 Audio
 
-Audio is its own page — see **[Audio (in & out)](audio.md)**.
+See **[Audio (in & out)](audio.md)** — with playable real outputs.
 
 ## Supported transformers modalities (the tool)
 

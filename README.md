@@ -22,9 +22,20 @@ upstream ⇒ supported here with **no code change**). And **`TransformerModel`**
 any **local** HF model a drop-in Strands brain that speaks the full content-block
 protocol — image, video, audio, document. With Qwen2.5-Omni it even **speaks back**.
 
-```
-  use_transformers  (tool)    image · video · audio · text · robot-state  ──▶  text · audio · image · labels · actions
-  TransformerModel  (brain)   Agent(model=…) consumes image/video/audio/document blocks  ──▶  text · reasoning · speech
+```mermaid
+flowchart LR
+    IN["📥 text · image · video<br/>audio · document · robot-state"]
+    TOOL["🛠️ use_transformers<br/><i>tool</i>"]
+    BRAIN["🧠 TransformerModel<br/><i>local agent brain</i>"]
+    OUT["📤 text · speech · image<br/>labels · actions"]
+    IN --> TOOL --> OUT
+    IN --> BRAIN --> OUT
+    classDef i fill:#7C4DFF,stroke:#5b34d6,color:#fff;
+    classDef c fill:#FFD21E,stroke:#E68A00,color:#3a2d00;
+    classDef o fill:#00E5FF,stroke:#00b3cc,color:#003844;
+    class IN i;
+    class TOOL,BRAIN c;
+    class OUT o;
 ```
 
 📖 **[Full documentation →](https://cagataycali.github.io/strands-transformers/)** &nbsp;·&nbsp; built with MkDocs (`docs/`)
@@ -71,6 +82,21 @@ print(agent([
 
 A 256M-param model in the standard Strands loop, *seeing* pixels through a content
 block — no API key, no server. Swap `model_path` for any HF VLM.
+
+## See it work
+
+Every output below is a **real** model result (CUDA · transformers 5.12 · torch 2.10):
+
+| You give it | Script | It returns |
+|-------------|--------|-----------|
+| 🖼️ a green image + "Color?" | `examples/multimodal_agent.py` | `"Green."` |
+| 🎬 brightening frames | `examples/multimodal_advanced.py` | `"BRIGHTER."` |
+| 🧰 a tool screenshot (blue) | `examples/multimodal_advanced.py` | `"Blue."` |
+| 📄 a text document | `examples/document_and_audio.py` | recovers `BANANA-42` |
+| 🔊 a 440 Hz tone (Omni) | `examples/omni_audio.py` | `"It's a pure tone."` |
+| 💬 "say: …can speak" (Omni) | `examples/omni_audio.py` | 🔊 real 24 kHz speech |
+
+▶️ **[Hear Omni speak + see all diagrams in the docs →](https://cagataycali.github.io/strands-transformers/)**
 
 ## Two ways to use it
 

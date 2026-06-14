@@ -1,0 +1,27 @@
+/* Brand: HuggingFace yellow/orange + Strands violet/cyan */
+:root {
+  --md-primary-fg-color:        #FF9D00;
+  --md-primary-fg-color--light: #FFD21E;
+  --md-primary-fg-color--dark:  #E68A00;
+  --md-accent-fg-color:         #7C4DFF;
+  --st-cyan:   #00E5FF;
+  --st-violet: #7C4DFF;
+}
+
+/* Mermaid node polish */
+.mermaid { text-align: center; }
+
+/* Verified-output tables: monospace + subtle highlight on the output column */
+table code { font-size: 0.85em; }
+
+/* Make the hero/links pop a touch */
+.md-typeset h1 { font-weight: 800; }
+
+/* Audio players sit neatly in tables/cards */
+audio { height: 32px; vertical-align: middle; max-width: 240px; }
+
+/* Slightly tighter example tables */
+.md-typeset table:not([class]) th { background: var(--md-primary-fg-color--light); }
+[data-md-color-scheme="slate"] .md-typeset table:not([class]) th {
+  background: #3a2d00;
+}

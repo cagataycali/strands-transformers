@@ -4,16 +4,30 @@ The source of truth is transformers' own `SUPPORTED_TASKS` registry, read at
 runtime — nothing is hardcoded per-task. A new transformers task is instantly
 available.
 
-```
-strands_transformers/
-├── tools/use_transformers.py   # the one @tool: discover · run · call
-├── models/transformers.py      # TransformerModel — local multimodal agent brain
-├── types/audio.py              # audio content-block extension
-└── core/
-    ├── registry.py             # transformers task taxonomy → modality → AutoModel
-    ├── engine.py               # load/cache models & pipelines; device + dtype
-    ├── io.py                   # coerce inputs · serialize outputs · save media
-    └── compat.py               # shims so 4.x-era custom-code models run on 5.x
+```mermaid
+flowchart TB
+    AG["🤖 Strands Agent"]
+    AG -->|tool| TOOL["🛠️ tools/use_transformers.py<br/>discover · run · call"]
+    AG -->|model| PROV["🧠 models/transformers.py<br/>TransformerModel"]
+    PROV --> TYPES["🔊 types/audio.py<br/>audio content block"]
+    TOOL --> REG
+    PROV --> ENG
+    subgraph CORE["core/"]
+        REG["📚 registry.py<br/>task taxonomy → modality → AutoModel"]
+        ENG["⚙️ engine.py<br/>load/cache · device · dtype"]
+        IO["🔁 io.py<br/>coerce in · serialize out · save media"]
+        CMP["🩹 compat.py<br/>4.x → 5.x shims"]
+    end
+    REG --> ENG --> IO
+    ENG --> CMP
+    REG -->|reads| HF["🤗 transformers SUPPORTED_TASKS"]
+
+    classDef a fill:#7C4DFF,stroke:#5b34d6,color:#fff;
+    classDef t fill:#FFD21E,stroke:#E68A00,color:#3a2d00;
+    classDef c fill:#00E5FF,stroke:#00b3cc,color:#003844;
+    class AG a;
+    class TOOL,PROV,TYPES t;
+    class REG,ENG,IO,CMP,HF c;
 ```
 
 | Layer | File | Responsibility |
