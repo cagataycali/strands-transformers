@@ -1,0 +1,107 @@
+site_name: Strands Transformers
+site_description: The universal entrypoint to HuggingFace transformers for Strands agents.
+site_author: Cagatay Cali
+repo_url: https://github.com/cagataycali/strands-transformers
+repo_name: cagataycali/strands-transformers
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  font:
+    text: Inter
+    code: JetBrains Mono
+  palette:
+    # Dark-first: a deep ink canvas with Strands violet→cyan accents.
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: deep purple
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      accent: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - search.suggest
+    - search.highlight
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Installation: guide/installation.md
+      - Quickstart: guide/quickstart.md
+  - Guide:
+      - The tool (use_transformers): guide/the-tool.md
+      - The agent brain (TransformerModel): guide/agent-brain.md
+      - Content blocks & modalities: guide/content-blocks.md
+      - Audio (in & out): guide/audio.md
+      - Robotics / VLA: guide/robotics.md
+      - Legacy model compatibility: guide/compat.md
+  - Reference:
+      - Architecture: reference/architecture.md
+      - TransformerModel API: reference/transformer-model.md
+      - use_transformers API: reference/use-transformers.md
+      - Examples: reference/examples.md
+  - Contributing: guide/contributing.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_source: true
+            show_root_heading: true
+            members_order: source
+            docstring_style: google
+
+extra_css:
+  - assets/extra.css
+
+extra_javascript:
+  - assets/js/glass.js
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/cagataycali/strands-transformers

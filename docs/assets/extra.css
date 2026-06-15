@@ -1,0 +1,682 @@
+/* ============================================================================
+   Strands Transformers - glass design system
+   Apple-inspired: no borders, frosted glass, refined type, generous space.
+   Monochrome ink canvas + a single restrained violet→cyan accent.
+   ============================================================================ */
+
+:root {
+  --st-violet: #8B5CFF;
+  --st-cyan:   #22D3EE;
+  --st-accent: #7C5CFF;
+
+  /* Glass tokens (light) */
+  --st-glass-bg:     rgba(255, 255, 255, 0.55);
+  --st-glass-bg-hi:  rgba(255, 255, 255, 0.72);
+  --st-glass-shadow: 0 8px 40px -12px rgba(15, 18, 28, 0.18);
+  --st-glass-shadow-hi: 0 18px 60px -16px rgba(124, 92, 255, 0.28);
+  --st-blur: saturate(180%) blur(22px);
+
+  --st-radius:    18px;
+  --st-radius-lg: 26px;
+}
+
+/* Apple-grade system font stack; Inter as a graceful fallback */
+:root {
+  --md-text-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display",
+                  "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --md-code-font: "SF Mono", "JetBrains Mono", ui-monospace, "Menlo", monospace;
+}
+
+/* ---------------------------------------------------------------------------
+   Canvas
+--------------------------------------------------------------------------- */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color:        #f5f5f7;   /* Apple light gray */
+  --md-default-bg-color--light: #ffffff;
+  --md-code-bg-color:           rgba(120, 120, 128, 0.10);
+  --md-accent-fg-color:         var(--st-accent);
+  --md-typeset-a-color:         var(--st-accent);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color:        #000000;   /* true black, Apple dark */
+  --md-default-bg-color--light: #0b0b0d;
+  --md-code-bg-color:           rgba(255, 255, 255, 0.06);
+  --md-accent-fg-color:         var(--st-cyan);
+  --md-typeset-a-color:         var(--st-cyan);
+
+  /* Glass tokens (dark) */
+  --st-glass-bg:     rgba(28, 28, 32, 0.50);
+  --st-glass-bg-hi:  rgba(40, 40, 46, 0.62);
+  --st-glass-shadow: 0 8px 40px -12px rgba(0, 0, 0, 0.6);
+  --st-glass-shadow-hi: 0 20px 70px -18px rgba(124, 92, 255, 0.42);
+}
+
+body, .md-typeset {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.md-typeset {
+  font-size: 0.92rem;
+  line-height: 1.78;
+  letter-spacing: -0.003em;
+}
+/* breathing room between paragraphs & lists for a cleaner, airier read */
+.md-typeset p { margin: 0.9em 0 1.1em; }
+.md-typeset li { margin-bottom: 0.4em; }
+/* comfortable reading measure so long lines don't sprawl */
+.md-typeset { max-width: 46rem; }
+.md-typeset table:not([class]),
+.md-typeset .admonition,
+.md-typeset .highlight,
+.md-typeset details { max-width: none; }
+
+.md-main__inner { margin-top: 1.6rem; }
+
+/* ---------------------------------------------------------------------------
+   Header & tabs - frosted, borderless, floating
+--------------------------------------------------------------------------- */
+.md-header {
+  background: var(--st-glass-bg) !important;
+  -webkit-backdrop-filter: var(--st-blur);
+  backdrop-filter: var(--st-blur);
+  box-shadow: 0 1px 0 rgba(128,128,135,0.12);
+  border: none !important;
+  color: var(--md-default-fg-color);
+}
+[data-md-color-scheme="slate"] .md-header {
+  box-shadow: 0 1px 0 rgba(255,255,255,0.06);
+}
+.md-header__title { font-weight: 600; letter-spacing: -0.01em; }
+
+.md-tabs {
+  background: transparent !important;
+  border: none !important;
+}
+.md-tabs__link { opacity: 0.7; font-weight: 500; transition: opacity .2s; }
+.md-tabs__link:hover, .md-tabs__link--active { opacity: 1; }
+
+/* Header text/icons inherit the canvas fg so it's readable on glass */
+.md-header, .md-header__topic, .md-header [class*="__icon"] { color: inherit; }
+
+/* ---------------------------------------------------------------------------
+   Typography - solid, classy, NO gradient fills
+--------------------------------------------------------------------------- */
+.md-typeset h1 {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--md-default-fg-color);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  font-size: 2.0rem;
+  line-height: 1.12;
+  margin-bottom: 0.5em;
+}
+.md-typeset h2 {
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  border: none;            /* kill the underline rule */
+  padding-bottom: 0;
+  margin-top: 2.4em;
+  font-size: 1.42rem;
+}
+.md-typeset h3 {
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  font-size: 1.08rem;
+}
+
+/* Links: subtle, underline on hover only */
+.md-typeset a { color: var(--md-typeset-a-color); text-decoration: none; transition: color .15s; }
+.md-typeset a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+/* ---------------------------------------------------------------------------
+   Hero - big, airy, restrained gradient ONLY on the tagline mark
+--------------------------------------------------------------------------- */
+.st-hero {
+  text-align: center;
+  padding: 4.5rem 1rem 2.4rem;
+}
+.st-hero .st-tag {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--md-default-fg-color--light, #555);
+  background: var(--st-glass-bg);
+  -webkit-backdrop-filter: var(--st-blur);
+  backdrop-filter: var(--st-blur);
+  border: none;
+  border-radius: 999px;
+  padding: 0.45em 1.1em;
+  margin-bottom: 1.6rem;
+  box-shadow: var(--st-glass-shadow);
+}
+[data-md-color-scheme="slate"] .st-hero .st-tag { color: rgba(255,255,255,0.7); }
+
+.st-hero h1, .st-hero .st-title {
+  font-size: 3.6rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  margin: 0.3rem 0;
+  color: var(--md-default-fg-color);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+}
+.st-hero .st-sub {
+  font-size: 1.2rem;
+  font-weight: 400;
+  opacity: 0.62;
+  max-width: 38rem;
+  margin: 1.1rem auto 1.4rem;
+  letter-spacing: -0.01em;
+  line-height: 1.5;
+}
+
+/* ---------------------------------------------------------------------------
+   Glass cards - borderless, frosted, soft lift on hover
+--------------------------------------------------------------------------- */
+.md-typeset .grid.cards > :is(ul, ol) > li,
+.md-typeset .grid > .card {
+  border: none !important;
+  border-radius: var(--st-radius);
+  background: var(--st-glass-bg);
+  -webkit-backdrop-filter: var(--st-blur);
+  backdrop-filter: var(--st-blur);
+  box-shadow: var(--st-glass-shadow);
+  padding: 1.4rem 1.5rem;
+  transition: transform .3s cubic-bezier(.2,.7,.2,1), box-shadow .3s;
+}
+.md-typeset .grid.cards > :is(ul, ol) > li:hover,
+.md-typeset .grid > .card:hover {
+  transform: translateY(-5px);
+  box-shadow: var(--st-glass-shadow-hi);
+}
+.md-typeset .grid.cards hr { display: none; }   /* drop the card divider line */
+
+/* ---------------------------------------------------------------------------
+   Code - frosted slab, no border, rounded
+--------------------------------------------------------------------------- */
+.md-typeset pre > code,
+.md-typeset .highlight {
+  border-radius: var(--st-radius);
+}
+.md-typeset pre {
+  border-radius: var(--st-radius);
+  box-shadow: var(--st-glass-shadow);
+}
+.md-typeset pre > code {
+  border: none;
+}
+[data-md-color-scheme="slate"] .md-typeset pre > code,
+[data-md-color-scheme="slate"] .md-typeset .highlight {
+  background: rgba(22, 22, 26, 0.85);
+  -webkit-backdrop-filter: var(--st-blur);
+  backdrop-filter: var(--st-blur);
+}
+/* inline code: soft pill, no border */
+.md-typeset code:not(pre code) {
+  border: none;
+  border-radius: 7px;
+  padding: 0.12em 0.42em;
+  font-size: 0.82em;
+}
+
+/* console blocks → deep terminal glass */
+.md-typeset .language-console .highlight,
+.md-typeset pre:has(> code.language-console) {
+  background: rgba(10, 10, 12, 0.92) !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Result callout - frosted, borderless
+--------------------------------------------------------------------------- */
+.md-typeset .result {
+  border: none;
+  border-left: none;
+  background: var(--st-glass-bg);
+  -webkit-backdrop-filter: var(--st-blur);
+  backdrop-filter: var(--st-blur);
+  border-radius: var(--st-radius);
+  box-shadow: var(--st-glass-shadow);
+  padding: 1.2rem 1.4rem;
+}
+
+/* ---------------------------------------------------------------------------
+   Tables - borderless, glass, gentle zebra
+--------------------------------------------------------------------------- */
+.md-typeset table:not([class]) {
+  border: none;
+  border-radius: var(--st-radius);
+  overflow: hidden;
+  box-shadow: var(--st-glass-shadow);
+  background: var(--st-glass-bg);
+  -webkit-backdrop-filter: var(--st-blur);
+  backdrop-filter: var(--st-blur);
+}
+.md-typeset table:not([class]) th {
+  background: transparent;
+  color: inherit;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  border: none;
+}
+.md-typeset table:not([class]) td { border: none; }
+.md-typeset table:not([class]) tr:nth-child(even) td {
+  background: rgba(128, 128, 135, 0.06);
+}
+.md-typeset table:not([class]) td code { font-size: 0.82em; }
+
+/* ---------------------------------------------------------------------------
+   Media - clean, borderless, soft shadow
+--------------------------------------------------------------------------- */
+.md-typeset img[src*="/img/"],
+.md-typeset img[src*="/video/"] {
+  border-radius: var(--st-radius);
+  border: none;
+  box-shadow: var(--st-glass-shadow);
+}
+.md-typeset audio {
+  height: 38px;
+  width: 260px;
+  max-width: 100%;
+  border-radius: 999px;
+}
+
+/* ---------------------------------------------------------------------------
+   Admonitions - frosted, hairline accent (no heavy borders)
+--------------------------------------------------------------------------- */
+.md-typeset .admonition,
+.md-typeset details {
+  border: none !important;
+  border-radius: var(--st-radius);
+  background: var(--st-glass-bg);
+  -webkit-backdrop-filter: var(--st-blur);
+  backdrop-filter: var(--st-blur);
+  box-shadow: var(--st-glass-shadow);
+}
+.md-typeset .admonition-title,
+.md-typeset summary { border: none !important; background: transparent; font-weight: 600; }
+
+/* ---------------------------------------------------------------------------
+   Navigation - quiet, borderless, glassy active pill
+--------------------------------------------------------------------------- */
+.md-nav { font-size: 0.74rem; }
+.md-nav__title { font-weight: 600; opacity: 0.6; }
+.md-nav__link { transition: color .15s, opacity .15s; opacity: 0.78; }
+.md-nav__link:hover { opacity: 1; }
+.md-nav__link--active {
+  opacity: 1;
+  font-weight: 600;
+  color: var(--md-accent-fg-color) !important;
+}
+.md-sidebar { font-weight: 450; }
+
+/* Search → frosted */
+.md-search__form {
+  border-radius: 999px;
+  background: var(--st-glass-bg);
+  -webkit-backdrop-filter: var(--st-blur);
+  backdrop-filter: var(--st-blur);
+  box-shadow: none;
+}
+.md-search__input { border-radius: 999px; }
+
+/* Footer - quiet, borderless */
+.md-footer { background: transparent; }
+.md-footer-meta { background: rgba(0,0,0,0.02); }
+[data-md-color-scheme="slate"] .md-footer-meta { background: rgba(255,255,255,0.02); }
+
+/* Mermaid centered, on glass */
+.mermaid { text-align: center; }
+
+/* Buttons (md-button) → glass pill */
+.md-typeset .md-button {
+  border: none;
+  border-radius: 999px;
+  background: var(--st-glass-bg);
+  -webkit-backdrop-filter: var(--st-blur);
+  backdrop-filter: var(--st-blur);
+  box-shadow: var(--st-glass-shadow);
+  font-weight: 550;
+  transition: transform .2s, box-shadow .2s;
+}
+.md-typeset .md-button:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--st-glass-shadow-hi);
+  border: none;
+}
+.md-typeset .md-button--primary {
+  background: linear-gradient(120deg, var(--st-violet), var(--st-cyan));
+  color: #fff;
+}
+
+/* Selection tint */
+::selection { background: rgba(124, 92, 255, 0.25); }
+
+/* ---------------------------------------------------------------------------
+   Ambient backdrop - faint color bloom so glass has something to refract.
+   Fixed, behind everything, very low opacity → stays classy & readable.
+--------------------------------------------------------------------------- */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(40rem 40rem at 12% -8%, rgba(139,92,255,0.10), transparent 60%),
+    radial-gradient(38rem 38rem at 98% 8%, rgba(34,211,238,0.09), transparent 60%),
+    radial-gradient(46rem 46rem at 50% 116%, rgba(124,92,255,0.07), transparent 60%);
+}
+[data-md-color-scheme="slate"] body::before {
+  background:
+    radial-gradient(42rem 42rem at 10% -10%, rgba(139,92,255,0.18), transparent 60%),
+    radial-gradient(40rem 40rem at 100% 6%, rgba(34,211,238,0.14), transparent 60%),
+    radial-gradient(48rem 48rem at 50% 118%, rgba(124,92,255,0.12), transparent 62%);
+}
+
+/* Honor reduced-motion / reduced-transparency for accessibility */
+@media (prefers-reduced-transparency: reduce) {
+  .md-header, .grid.cards > :is(ul,ol) > li, .md-typeset table:not([class]),
+  .md-typeset .admonition, .md-typeset details, .md-typeset .result,
+  .st-hero .st-tag, .md-search__form, .md-typeset .md-button {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Mermaid - glass diagram: hairline edges, frosted node containers, quiet text
+--------------------------------------------------------------------------- */
+.mermaid .node rect,
+.mermaid .node polygon,
+.mermaid .node circle,
+.mermaid .cluster rect {
+  rx: 12px; ry: 12px;
+  filter: drop-shadow(0 6px 18px rgba(15,18,28,0.10));
+}
+.mermaid .edgePath .path,
+.mermaid .flowchart-link {
+  stroke: rgba(124,92,255,0.45) !important;
+  stroke-width: 1.4px !important;
+}
+.mermaid .arrowheadPath { fill: rgba(124,92,255,0.55) !important; }
+.mermaid .edgeLabel {
+  background: transparent !important;
+  color: var(--md-default-fg-color) !important;
+  opacity: 0.7;
+  font-size: 0.78em;
+}
+.mermaid .edgeLabel rect { fill: transparent !important; opacity: 0 !important; }
+.mermaid .cluster rect {
+  fill: rgba(128,128,135,0.05) !important;
+  stroke: rgba(128,128,135,0.20) !important;
+  stroke-width: 1px !important;
+}
+.mermaid .nodeLabel, .mermaid .edgeLabel, .mermaid span { font-weight: 500; }
+[data-md-color-scheme="slate"] .mermaid .node rect,
+[data-md-color-scheme="slate"] .mermaid .cluster rect {
+  filter: drop-shadow(0 8px 22px rgba(0,0,0,0.5));
+}
+
+/* ===========================================================================
+   DEEP POLISH LAYER
+   =========================================================================== */
+
+/* ---- Scroll-reveal: glass elements rise + fade into place ---- */
+.md-typeset .st-reveal {
+  opacity: 0;
+  transform: translateY(14px);
+  transition: opacity .6s cubic-bezier(.2,.7,.2,1), transform .6s cubic-bezier(.2,.7,.2,1);
+  will-change: opacity, transform;
+}
+.md-typeset .st-reveal.st-in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .md-typeset .st-reveal { opacity: 1 !important; transform: none !important; transition: none; }
+}
+
+/* ---- Pointer-reactive sheen on cards (driven by --mx/--my from glass.js) ---- */
+.md-typeset .grid.cards > :is(ul, ol) > li {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.md-typeset .grid.cards > :is(ul, ol) > li::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(
+    16rem 16rem at var(--mx, 50%) var(--my, 0%),
+    rgba(139, 92, 255, 0.14), transparent 60%);
+  opacity: 0;
+  transition: opacity .35s;
+}
+.md-typeset .grid.cards > :is(ul, ol) > li:hover::after { opacity: 1; }
+
+/* ---- Code blocks → macOS "window" with traffic-light dots ---- */
+.md-typeset .highlight { position: relative; }
+.md-typeset .highlight > pre { padding-top: 2.3rem; }
+.md-typeset .highlight::before {
+  content: "";
+  position: absolute;
+  top: 0.95rem; left: 1.05rem;
+  width: 0.62rem; height: 0.62rem;
+  border-radius: 50%;
+  background: #ff5f57;
+  box-shadow: 1.05rem 0 0 #febc2e, 2.1rem 0 0 #28c840;
+  opacity: 0.9;
+  z-index: 2;
+}
+/* don't add window chrome to inline / console-style result blocks twice */
+.md-typeset .language-console .highlight::before { opacity: 0.55; }
+.md-typeset pre > code { padding-top: 0; }
+
+/* ---- Hero: gentle inner glow halo behind the title ---- */
+.st-hero { position: relative; }
+.st-hero::before {
+  content: "";
+  position: absolute;
+  top: 38%; left: 50%;
+  width: 36rem; height: 18rem;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(closest-side, rgba(124,92,255,0.16), transparent 72%);
+  filter: blur(8px);
+  z-index: -1;
+  pointer-events: none;
+}
+[data-md-color-scheme="slate"] .st-hero::before {
+  background: radial-gradient(closest-side, rgba(124,92,255,0.30), transparent 72%);
+}
+
+/* ---- Refined scrollbar (thin, glassy) ---- */
+* { scrollbar-width: thin; scrollbar-color: rgba(124,92,255,0.35) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(124,92,255,0.30);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(124,92,255,0.55); background-clip: content-box; }
+
+/* ---- Accessible focus rings (keyboard only) ---- */
+.md-typeset a:focus-visible,
+.md-nav__link:focus-visible,
+.md-typeset .md-button:focus-visible,
+.md-search__input:focus-visible {
+  outline: 2px solid var(--md-accent-fg-color);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* ---- Logo: subtle hover breathe ---- */
+.md-header__button.md-logo img { transition: transform .4s cubic-bezier(.2,.7,.2,1); }
+.md-header__button.md-logo:hover img { transform: rotate(-8deg) scale(1.06); }
+
+/* ---- TOC: quiet, with a soft active marker ---- */
+.md-nav--secondary .md-nav__link--active {
+  position: relative;
+}
+.md-nav--secondary .md-nav__link--active::before {
+  content: "";
+  position: absolute;
+  left: -0.8rem; top: 50%;
+  width: 4px; height: 1.1em;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: linear-gradient(var(--st-violet), var(--st-cyan));
+}
+
+/* ---- Copy button → glassy, borderless ---- */
+.md-clipboard {
+  border-radius: 8px;
+  transition: background .2s, color .2s;
+}
+.md-clipboard:hover { background: rgba(124,92,255,0.18); color: var(--md-accent-fg-color); }
+
+/* ---- Smooth anchor scrolling for permalinks ---- */
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+/* ===========================================================================
+   ANIMATED GRADIENT MESH HERO
+   Drifting color blobs behind a frosted veil - the Apple "aurora" backdrop.
+   =========================================================================== */
+.st-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--st-radius-lg);
+  margin: 0.5rem 0 1rem;
+  isolation: isolate;
+}
+
+/* Mesh container holds the drifting blobs + a frosting veil */
+.st-mesh {
+  position: absolute;
+  inset: -20%;
+  z-index: -2;
+  pointer-events: none;
+  filter: blur(48px) saturate(150%);
+}
+/* frosting veil so the mesh stays soft & text stays crisp */
+.st-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--st-glass-bg);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+/* kill the old static halo - the mesh replaces it */
+.st-hero::before { display: none; }
+
+.st-blob {
+  position: absolute;
+  width: 42%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  opacity: 0.85;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+[data-md-color-scheme="default"] .st-blob { mix-blend-mode: multiply; opacity: 0.55; }
+
+.st-blob--1 { background: radial-gradient(circle at 30% 30%, #8B5CFF, transparent 70%); top: -6%;  left: 4%;  animation: stDrift1 18s ease-in-out infinite; }
+.st-blob--2 { background: radial-gradient(circle at 30% 30%, #22D3EE, transparent 70%); top: 8%;   right: 2%; animation: stDrift2 22s ease-in-out infinite; }
+.st-blob--3 { background: radial-gradient(circle at 30% 30%, #5C7CFF, transparent 70%); bottom: -10%; left: 26%; animation: stDrift3 20s ease-in-out infinite; }
+.st-blob--4 { background: radial-gradient(circle at 30% 30%, #B07CFF, transparent 70%); bottom: 0%; right: 22%; animation: stDrift4 26s ease-in-out infinite; }
+
+@keyframes stDrift1 { 0%,100% { transform: translate(0,0) scale(1); } 33% { transform: translate(18%, 12%) scale(1.15); } 66% { transform: translate(-8%, 20%) scale(0.92); } }
+@keyframes stDrift2 { 0%,100% { transform: translate(0,0) scale(1); } 33% { transform: translate(-16%, 14%) scale(0.9); } 66% { transform: translate(-6%, -12%) scale(1.18); } }
+@keyframes stDrift3 { 0%,100% { transform: translate(0,0) scale(1); } 33% { transform: translate(14%, -16%) scale(1.1); } 66% { transform: translate(24%, 6%) scale(0.95); } }
+@keyframes stDrift4 { 0%,100% { transform: translate(0,0) scale(1); } 33% { transform: translate(-18%, -10%) scale(1.12); } 66% { transform: translate(8%, -18%) scale(0.9); } }
+
+/* Hero CTA buttons */
+.st-cta {
+  display: flex;
+  gap: 0.7rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 1.6rem;
+}
+.st-hero .md-button { padding: 0.55em 1.5em; font-size: 0.86rem; }
+
+/* Respect reduced motion: freeze the mesh on a pleasing pose */
+@media (prefers-reduced-motion: reduce) {
+  .st-blob { animation: none !important; }
+}
+
+/* ---------------------------------------------------------------------------
+   Mermaid v2 - clearer hierarchy: bold node titles, muted sub-labels
+--------------------------------------------------------------------------- */
+.mermaid .nodeLabel b { font-weight: 700; letter-spacing: -0.01em; }
+.mermaid .nodeLabel span {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 0.82em;
+  opacity: 0.62;
+  font-weight: 450;
+}
+.mermaid .nodeLabel { line-height: 1.45; }
+/* thicker, calmer flow edges for the == links */
+.mermaid .edgePath .path { stroke-linecap: round; }
+/* cluster titles: quiet uppercase tag */
+.mermaid .cluster .cluster-label,
+.mermaid .cluster span {
+  font-weight: 600;
+  opacity: 0.75;
+  letter-spacing: 0.01em;
+}
+/* give nodes breathing room */
+.mermaid .node .label-container,
+.mermaid .node rect { rx: 14px; ry: 14px; }
+.mermaid { padding: 0.6rem 0; }
+
+/* italic sub-labels in mermaid nodes share the muted treatment of <span> */
+.mermaid .nodeLabel i,
+.mermaid .edgeLabel i {
+  font-style: normal;
+  font-size: 0.82em;
+  opacity: 0.6;
+  font-weight: 450;
+}
+
+/* ---------------------------------------------------------------------------
+   Audio players - glass pills that match the theme
+--------------------------------------------------------------------------- */
+.md-typeset audio {
+  width: 100%;
+  height: 40px;
+  margin: 0.6rem 0 0.2rem;
+  border-radius: 999px;
+  outline: none;
+  filter: saturate(1.05);
+}
+audio::-webkit-media-controls-panel {
+  background: var(--st-glass-bg);
+  -webkit-backdrop-filter: blur(var(--st-glass-blur));
+  backdrop-filter: blur(var(--st-glass-blur));
+}
+audio::-webkit-media-controls-play-button,
+audio::-webkit-media-controls-mute-button { filter: hue-rotate(-10deg); }
+
+/* Voice gallery: each tab feels like a little glass studio card */
+.st-voices .tabbed-set { margin: 1rem 0 1.4rem; }
+.st-voices .tabbed-content {
+  background: var(--st-glass-bg);
+  -webkit-backdrop-filter: blur(var(--st-glass-blur));
+  backdrop-filter: blur(var(--st-glass-blur));
+  border-radius: var(--st-radius);
+  padding: 1rem 1.1rem 0.6rem;
+  box-shadow: 0 8px 28px rgba(15,18,28,0.08);
+}
+[data-md-color-scheme="slate"] .st-voices .tabbed-content {
+  box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+}

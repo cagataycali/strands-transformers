@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "strands-transformers"
+dynamic = ["version"]
+description = "The universal entrypoint to HuggingFace transformers for Strands agents - 100% task & modality coverage, zero hardcoding."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Cagatay Cali", email = "cagataycali@icloud.com"}
+]
+keywords = [
+    "strands", "transformers", "huggingface", "ai", "agents",
+    "multimodal", "vision", "audio", "video", "vla", "robotics", "llm"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "strands-agents",
+    "transformers>=4.40",
+    "torch",
+    "accelerate",
+    "pillow",
+    "numpy",
+]
+
+[project.optional-dependencies]
+audio = ["soundfile", "librosa"]
+vision = ["torchvision", "opencv-python", "av"]
+training = ["trl", "peft", "accelerate", "datasets"]
+dev = ["pytest>=7.0", "black", "ruff"]
+docs = ["mkdocs-material", "mkdocstrings[python]", "pymdown-extensions"]
+all = ["strands-transformers[audio,vision,training,dev,docs]"]
+
+[project.urls]
+Homepage = "https://github.com/cagataycali/strands-transformers"
+Repository = "https://github.com/cagataycali/strands-transformers"
+Issues = "https://github.com/cagataycali/strands-transformers/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["strands_transformers*"]
+
+[tool.setuptools_scm]
+write_to = "strands_transformers/_version.py"
+# Tags look like vX.Y.Z; fall back to 0.0.0 for untagged checkouts.
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]

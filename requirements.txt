@@ -1,0 +1,5 @@
+strands-agents
+transformers>=4.40
+torch
+pillow
+numpy

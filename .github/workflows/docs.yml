@@ -1,0 +1,59 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "pyproject.toml"
+      - "strands_transformers/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+# Allow one concurrent deployment; let in-progress runs finish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build docs
+        run: |
+          uv venv --python 3.12
+          # Docs build uses griffe's STATIC analysis for the API reference, so
+          # we only need the doc toolchain + the package importable as a path -
+          # NOT torch / transformers / strands (kept out via --no-deps).
+          uv pip install mkdocs-material "mkdocstrings[python]" pymdown-extensions
+          uv pip install --no-deps -e .
+          # Call the venv binary directly (avoid `uv run`, which would re-sync
+          # the full project and pull the heavy ML deps).
+          .venv/bin/mkdocs build --strict
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,14 @@
+.venv
+.DS_Store
+*.bak
+__pycache__
+*_merged
+qwen3_*
+sessions
+*.egg-info
+system_prompt.prompt
+site/
+strands_transformers/_version.py
+dist/
+build/
+.coverage
